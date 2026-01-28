@@ -62,6 +62,6 @@ def render():
     
     st.dataframe(
         pivot_table.style.map(color_cells),
-        use_container_width=True,
+        width='stretch',
         height=700
     )

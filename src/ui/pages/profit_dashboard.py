@@ -50,7 +50,7 @@ def render():
                    "Net Profit": "₹{:.0f}", 
                    "Margin %": "{:.1f}%"
                }),
-        use_container_width=True,
+        width='stretch',
         height=600,
         hide_index=True
     )
