@@ -1,0 +1,95 @@
+-- Disable Foreign Keys temporarily
+PRAGMA foreign_keys = OFF;
+
+DROP TABLE IF EXISTS channel_listings;
+DROP TABLE IF EXISTS pack_master;
+DROP TABLE IF EXISTS product_master;
+DROP TABLE IF EXISTS pricing_rules;
+DROP TABLE IF EXISTS shipping_rules;
+DROP TABLE IF EXISTS config;
+
+PRAGMA foreign_keys = ON;
+
+-- 1. PRODUCT MASTER
+CREATE TABLE product_master (
+    sku VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255),
+    category VARCHAR(100),
+    brand VARCHAR(100),
+    lifecycle_status VARCHAR(50),
+    
+    -- Supplier Info
+    supplier VARCHAR(100),
+    supplier_code VARCHAR(100),
+    
+    -- Cost Structure
+    mfg_cost DECIMAL(10,2) DEFAULT 0,
+    packaging_cost DECIMAL(10,2) DEFAULT 0,  -- Maps to 'Unit_Box_Cost'
+    labeling_labor DECIMAL(10,2) DEFAULT 0,
+    inbound_transport DECIMAL(10,2) DEFAULT 0,
+    total_unit_cogs DECIMAL(10,2) DEFAULT 0, 
+    
+    -- Tax
+    hsn VARCHAR(20),
+    gst_rate DECIMAL(5,2),
+    mrp DECIMAL(10,2)
+);
+
+-- 2. PACK MASTER
+CREATE TABLE pack_master (
+    pack_sku VARCHAR(50) PRIMARY KEY,
+    master_sku VARCHAR(50) REFERENCES product_master(sku),
+    quantity INT DEFAULT 1,
+    
+    -- Pack Specifics
+    packaging_cogs DECIMAL(10,2) DEFAULT 0, 
+    final_l_cm DECIMAL(10,2),
+    final_w_cm DECIMAL(10,2),
+    final_h_cm DECIMAL(10,2),
+    final_wt_kg DECIMAL(10,3)
+);
+
+-- 3. CHANNEL LISTINGS
+CREATE TABLE channel_listings (
+    channel_sku VARCHAR(100),
+    marketplace VARCHAR(50),
+    internal_sku VARCHAR(50) REFERENCES pack_master(pack_sku),
+    listing_status VARCHAR(50),
+    
+    -- New Financial Field
+    selling_price DECIMAL(10,2) DEFAULT 0.0,
+    
+    channel_id VARCHAR(50),
+    listing_url TEXT,
+    last_updated VARCHAR(50),
+    comment TEXT,
+    
+    PRIMARY KEY (channel_sku, marketplace)
+);
+
+-- 4. PRICING RULES
+CREATE TABLE pricing_rules (
+    marketplace VARCHAR(50),
+    category_ref VARCHAR(100),
+    min_price DECIMAL(10,2),
+    max_price DECIMAL(10,2),
+    referral_fee_pct DECIMAL(5,4),
+    closing_fee_inr DECIMAL(10,2)
+);
+
+-- 5. SHIPPING RULES
+CREATE TABLE shipping_rules (
+    marketplace VARCHAR(50),
+    weight_slab_max_kg DECIMAL(5,3),
+    local_fee DECIMAL(10,2),
+    regional_fee DECIMAL(10,2),
+    national_fee DECIMAL(10,2)
+);
+
+-- 6. CONFIG
+CREATE TABLE config (
+    marketplace VARCHAR(50) PRIMARY KEY,
+    default_zone VARCHAR(50),
+    volumetric_divisor INT,
+    gst_on_fees DECIMAL(5,2)
+);
