@@ -3,7 +3,7 @@ import streamlit as st
 st.set_page_config(page_title="Ecommerce ERP", layout="wide")
 
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Profit Dashboard", "Gap Analysis", "Demand Planner", "Data Manager"])
+page = st.sidebar.radio("Go to", ["Profit Dashboard", "Gap Analysis", "Demand Planner", "Data Manager", "Inventory Manager"])
 
 if page == "Profit Dashboard":
     from src.ui.pages import profit_dashboard
@@ -17,3 +17,6 @@ elif page == "Demand Planner": # NEW
 elif page == "Data Manager":
     from src.ui.pages import data_manager
     data_manager.render()
+elif page == "Inventory Manager":
+    from src.ui.pages import inventory_manager
+    inventory_manager.render()

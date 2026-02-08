@@ -1,6 +1,7 @@
 import pandas as pd
 from src.infrastructure.database import get_engine
 from src.infrastructure.parsers import parse_amazon_sales, parse_flipkart_sales, parse_meesho_sales, parse_stock_file
+from sqlalchemy import text
 
 class InventoryService:
     def __init__(self):
@@ -122,3 +123,96 @@ class InventoryService:
         plan['ads'] = plan['ads'].round(2)
         
         return plan, orphans
+    
+    def get_inventory_status(self):
+        """Joins Product Master with the dedicated Inventory table."""
+        query = """
+        SELECT 
+            p.sku, 
+            p.category, 
+            COALESCE(i.godown_stock_packs, 0) as godown_stock_packs, 
+            COALESCE(i.shop_stock_pieces, 0) as shop_stock_pieces,
+            pm.quantity as multiplier
+        FROM product_master p
+        LEFT JOIN inventory_master i ON p.sku = i.sku
+        LEFT JOIN pack_master pm ON p.sku = pm.master_sku
+        GROUP BY p.sku
+        """
+        df = pd.read_sql(query, self.engine)
+        df['multiplier'] = df['multiplier'].fillna(1)
+        # Total Pieces = (Godown Packs * Multiplier) + Shop Pieces
+        df['total_pieces'] = (df['godown_stock_packs'] * df['multiplier']) + df['shop_stock_pieces']
+        return df
+
+    def add_stock(self, sku, qty, location, unit_type, reason):
+        """Updates inventory_master and logs to ledger."""
+        col = "godown_stock_packs" if location == "GODOWN" else "shop_stock_pieces"
+        with self.engine.connect() as conn:
+            # INSERT OR IGNORE ensures the row exists in inventory_master first
+            conn.execute(text("INSERT OR IGNORE INTO inventory_master (sku) VALUES (:sku)"), {"sku": sku})
+            conn.execute(text(f"UPDATE inventory_master SET {col} = {col} + :qty, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"), 
+                         {"qty": qty, "sku": sku})
+            
+            conn.execute(text("""INSERT INTO stock_ledger (sku, transaction_type, location, qty_change, unit_type, reason) 
+                                VALUES (:sku, 'ADJUSTMENT', :loc, :qty, :unit, :reason)"""),
+                         {"sku": sku, "loc": location, "qty": qty, "unit": unit_type, "reason": reason})
+            conn.commit()
+
+    def transfer_to_shop(self, sku, packs, multiplier):
+        """Moves packs from Godown and converts to pieces in Shop."""
+        with self.engine.connect() as conn:
+            # Deduct Packs from Godown
+            conn.execute(text("UPDATE inventory_master SET godown_stock_packs = godown_stock_packs - :p WHERE sku = :sku"),
+                         {"p": packs, "sku": sku})
+            # Add Pieces to Shop
+            pieces = packs * multiplier
+            conn.execute(text("UPDATE inventory_master SET shop_stock_pieces = shop_stock_pieces + :pc WHERE sku = :sku"),
+                         {"pc": pieces, "sku": sku})
+            # Ledger entries
+            conn.execute(text("INSERT INTO stock_ledger (sku, transaction_type, location, qty_change, unit_type, reason) VALUES (:sku, 'TRANSFER', 'GODOWN', :q, 'PACK', 'Moved to Shop')"),
+                         {"sku": sku, "q": -packs})
+            conn.execute(text("INSERT INTO stock_ledger (sku, transaction_type, location, qty_change, unit_type, reason) VALUES (:sku, 'TRANSFER', 'SHOP', :q, 'PIECE', 'Received from Godown')"),
+                         {"sku": sku, "q": pieces})
+            conn.commit()
+
+    def get_godown_inventory(self):
+        """Fetches SKU, Category, Current Packs, and Multiplier."""
+        query = """
+        SELECT 
+            p.sku, p.category, 
+            COALESCE(i.godown_stock_packs, 0) as godown_stock_packs,
+            COALESCE(i.pack_multiplier, 1) as pack_multiplier
+        FROM product_master p
+        LEFT JOIN inventory_master i ON p.sku = i.sku
+        """
+        return pd.read_sql(query, self.engine)
+
+    def manage_godown_stock(self, sku, packs, multiplier, action_type, reason=""):
+        """Handles adding or removing packs with a specific multiplier."""
+        # Calculate total pieces for the ledger record
+        total_pieces = packs * multiplier
+        
+        # Adjust packs based on action
+        pack_change = packs if action_type == "ADD" else -packs
+        
+        with self.engine.connect() as conn:
+            # 1. Update/Initialize inventory_master
+            # We use REPLACE to update the multiplier and pack count in one go
+            conn.execute(text("""
+                INSERT INTO inventory_master (sku, godown_stock_packs, pack_multiplier, last_updated)
+                VALUES (:sku, :packs, :mult, CURRENT_TIMESTAMP)
+                ON CONFLICT(sku) DO UPDATE SET 
+                    godown_stock_packs = godown_stock_packs + :packs,
+                    pack_multiplier = :mult,
+                    last_updated = CURRENT_TIMESTAMP
+            """), {"sku": sku, "packs": pack_change, "mult": multiplier})
+
+            # 2. Log to Ledger
+            conn.execute(text("""
+                INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                VALUES (:sku, :action, :p, :m, :tp, :r)
+            """), {
+                "sku": sku, "action": action_type, "p": packs, 
+                "m": multiplier, "tp": total_pieces, "r": reason
+            })
+            conn.commit()

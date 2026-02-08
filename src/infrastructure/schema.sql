@@ -93,3 +93,28 @@ CREATE TABLE config (
     volumetric_divisor INT,
     gst_on_fees DECIMAL(5,2)
 );
+
+-- Track current balances at the Product level
+ALTER TABLE product_master ADD COLUMN godown_stock_packs INT DEFAULT 0;
+ALTER TABLE product_master ADD COLUMN shop_stock_pieces INT DEFAULT 0;
+
+-- Updated dedicated Inventory table
+CREATE TABLE IF NOT EXISTS inventory_master (
+    sku VARCHAR(50) PRIMARY KEY REFERENCES product_master(sku),
+    godown_stock_packs INT DEFAULT 0,
+    shop_stock_pieces INT DEFAULT 0,
+    pack_multiplier INT DEFAULT 1, -- Remembers the pieces-per-pack for this SKU
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Simplified Ledger for Godown transactions
+CREATE TABLE IF NOT EXISTS stock_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku VARCHAR(50),
+    transaction_type VARCHAR(20), -- 'ADD' or 'REMOVE'
+    packs INT,
+    multiplier INT,               -- The multiplier used at that moment
+    total_pieces_affected INT,    -- packs * multiplier
+    reason TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
