@@ -1,4 +1,10 @@
 import streamlit as st
+from src.infrastructure.init_db import init_database
+
+# Initialize database on first run
+if not st.session_state.get("db_initialized"):
+    init_database()
+    st.session_state.db_initialized = True
 
 st.set_page_config(page_title="Ecommerce ERP", layout="wide")
 

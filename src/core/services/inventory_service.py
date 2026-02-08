@@ -196,18 +196,22 @@ class InventoryService:
         pack_change = packs if action_type == "ADD" else -packs
         
         with self.engine.connect() as conn:
-            # 1. Update/Initialize inventory_master
-            # We use REPLACE to update the multiplier and pack count in one go
+            # 1. First, ensure the SKU exists in inventory_master
             conn.execute(text("""
-                INSERT INTO inventory_master (sku, godown_stock_packs, pack_multiplier, last_updated)
-                VALUES (:sku, :packs, :mult, CURRENT_TIMESTAMP)
-                ON CONFLICT(sku) DO UPDATE SET 
-                    godown_stock_packs = godown_stock_packs + :packs,
+                INSERT OR IGNORE INTO inventory_master (sku)
+                VALUES (:sku)
+            """), {"sku": sku})
+            
+            # 2. Update the inventory with the change (add/remove packs)
+            conn.execute(text("""
+                UPDATE inventory_master 
+                SET godown_stock_packs = godown_stock_packs + :packs,
                     pack_multiplier = :mult,
                     last_updated = CURRENT_TIMESTAMP
+                WHERE sku = :sku
             """), {"sku": sku, "packs": pack_change, "mult": multiplier})
 
-            # 2. Log to Ledger
+            # 3. Log to Ledger for audit trail
             conn.execute(text("""
                 INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
                 VALUES (:sku, :action, :p, :m, :tp, :r)
