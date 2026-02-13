@@ -184,6 +184,7 @@ class InventoryService:
             COALESCE(i.pack_multiplier, 1) as pack_multiplier
         FROM product_master p
         LEFT JOIN inventory_master i ON p.sku = i.sku
+        ORDER BY p.sku
         """
         return pd.read_sql(query, self.engine)
 

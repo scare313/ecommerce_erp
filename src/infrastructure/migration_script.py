@@ -52,8 +52,11 @@ def run_migration():
     print("🧹 Clearing Database...")
     with engine.connect() as conn:
         conn.execute(text("PRAGMA foreign_keys = OFF;"))
-        for table in ['channel_listings', 'pack_master', 'product_master', 'pricing_rules', 'shipping_rules', 'config']:
-            conn.execute(text(f"DELETE FROM {table};"))
+        for table in ['channel_listings', 'pack_master', 'product_master', 'inventory_master', 'pricing_rules', 'shipping_rules', 'config']:
+            try:
+                conn.execute(text(f"DELETE FROM {table};"))
+            except:
+                pass  # Table might not exist yet
         conn.execute(text("PRAGMA foreign_keys = ON;"))
         conn.commit()
 
@@ -95,6 +98,19 @@ def run_migration():
 
             df[db_cols].to_sql('product_master', engine, if_exists='append', index=False)
             print(f"  ✔ Products: {len(df)}")
+            
+            # --- AUTO-CREATE INVENTORY RECORDS ---
+            # For each product, create an inventory_master record
+            inventory_records = df[['sku']].copy()
+            inventory_records['godown_stock_packs'] = 0
+            inventory_records['shop_stock_pieces'] = 0
+            inventory_records['pack_multiplier'] = 1
+            
+            try:
+                inventory_records.to_sql('inventory_master', engine, if_exists='append', index=False)
+                print(f"  ✔ Inventory Records: {len(inventory_records)}")
+            except Exception as e:
+                print(f"  ⚠️  Could not create inventory records: {e}")
 
         # --- 3. PACK MASTER ---
         df = load_sheet(excel_path, "Pack_Master")
