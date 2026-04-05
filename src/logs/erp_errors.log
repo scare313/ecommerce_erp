@@ -1,0 +1,90 @@
+2026-04-05 16:16:42 - __main__ - ERROR - [main.py:65] - Error rendering page 'Profit Dashboard': expected 'except' or 'finally' block (profit_dashboard.py, line 80)
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 46, in <module>
+    from src.ui.pages import profit_dashboard
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\profit_dashboard.py", line 80
+    view_df.columns = ['SKU', 'Product Name', 'Price', 'COGS', 'Fees+GST', 'Net Profit', 'Margin %']
+    ^^^^^^^
+SyntaxError: expected 'except' or 'finally' block
+2026-04-05 16:16:54 - __main__ - ERROR - [main.py:65] - Error rendering page 'Gap Analysis': expected an indented block after 'if' statement on line 64 (gap_dashboard.py, line 66)
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 50, in <module>
+    from src.ui.pages import gap_dashboard
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\gap_dashboard.py", line 66
+    mask = (pivot_table == 0).any(axis=1)
+    ^^^^
+IndentationError: expected an indented block after 'if' statement on line 64
+2026-04-05 16:16:59 - __main__ - ERROR - [main.py:65] - Error rendering page 'Gap Analysis': expected an indented block after 'if' statement on line 64 (gap_dashboard.py, line 66)
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 50, in <module>
+    from src.ui.pages import gap_dashboard
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\gap_dashboard.py", line 66
+    mask = (pivot_table == 0).any(axis=1)
+    ^^^^
+IndentationError: expected an indented block after 'if' statement on line 64
+2026-04-05 16:17:08 - __main__ - ERROR - [main.py:65] - Error rendering page 'Inventory Manager': There are multiple elements with the same `key='inventory_upload'`. To fix this, please make sure that the `key` argument is unique for each element you create.
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 63, in <module>
+    inventory_manager.render()
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\inventory_manager.py", line 385, in render
+    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx', 'xls'], key="inventory_upload")
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\runtime\metrics_util.py", line 563, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\widgets\file_uploader.py", line 484, in file_uploader
+    return self._file_uploader(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\widgets\file_uploader.py", line 538, in _file_uploader
+    element_id = compute_and_register_element_id(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\lib\utils.py", line 265, in compute_and_register_element_id
+    _register_element_id(ctx, element_type, element_id)
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\lib\utils.py", line 145, in _register_element_id
+    raise StreamlitDuplicateElementKey(user_key)
+streamlit.errors.StreamlitDuplicateElementKey: There are multiple elements with the same `key='inventory_upload'`. To fix this, please make sure that the `key` argument is unique for each element you create.
+2026-04-05 16:24:05 - __main__ - ERROR - [main.py:65] - Error rendering page 'Profit Dashboard': expected 'except' or 'finally' block (profit_dashboard.py, line 80)
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 46, in <module>
+    from src.ui.pages import profit_dashboard
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\profit_dashboard.py", line 80
+    view_df.columns = ['SKU', 'Product Name', 'Price', 'COGS', 'Fees+GST', 'Net Profit', 'Margin %']
+    ^^^^^^^
+SyntaxError: expected 'except' or 'finally' block
+2026-04-05 16:25:56 - __main__ - ERROR - [main.py:65] - Error rendering page 'Profit Dashboard': expected 'except' or 'finally' block (profit_dashboard.py, line 80)
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 46, in <module>
+    from src.ui.pages import profit_dashboard
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\profit_dashboard.py", line 80
+    view_df.columns = ['SKU', 'Product Name', 'Price', 'COGS', 'Fees+GST', 'Net Profit', 'Margin %']
+    ^^^^^^^
+SyntaxError: expected 'except' or 'finally' block
+2026-04-05 16:26:14 - __main__ - ERROR - [main.py:65] - Error rendering page 'Gap Analysis': expected an indented block after 'if' statement on line 64 (gap_dashboard.py, line 66)
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 50, in <module>
+    from src.ui.pages import gap_dashboard
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\gap_dashboard.py", line 66
+    mask = (pivot_table == 0).any(axis=1)
+    ^^^^
+IndentationError: expected an indented block after 'if' statement on line 64
+2026-04-05 16:26:33 - __main__ - ERROR - [main.py:65] - Error rendering page 'Inventory Manager': There are multiple elements with the same `key='inventory_upload'`. To fix this, please make sure that the `key` argument is unique for each element you create.
+Traceback (most recent call last):
+  File "C:\Automation\erp\ecommerce_erp\main.py", line 63, in <module>
+    inventory_manager.render()
+  File "C:\Automation\erp\ecommerce_erp\src\ui\pages\inventory_manager.py", line 385, in render
+    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx', 'xls'], key="inventory_upload")
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\runtime\metrics_util.py", line 563, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\widgets\file_uploader.py", line 484, in file_uploader
+    return self._file_uploader(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\widgets\file_uploader.py", line 538, in _file_uploader
+    element_id = compute_and_register_element_id(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\lib\utils.py", line 265, in compute_and_register_element_id
+    _register_element_id(ctx, element_type, element_id)
+  File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\lib\utils.py", line 145, in _register_element_id
+    raise StreamlitDuplicateElementKey(user_key)
+streamlit.errors.StreamlitDuplicateElementKey: There are multiple elements with the same `key='inventory_upload'`. To fix this, please make sure that the `key` argument is unique for each element you create.

@@ -1,16 +1,35 @@
+"""Inventory management and purchase planning service.
+
+Handles inventory tracking, purchase planning based on marketplace demand,
+and manages procurement calculations across suppliers.
+"""
 import pandas as pd
 from src.infrastructure.database import get_engine
 from src.infrastructure.parsers import parse_amazon_sales, parse_flipkart_sales, parse_meesho_sales, parse_stock_file
+from src.infrastructure.logger import get_logger, DatabaseException, DataValidationException, ServiceException
 from sqlalchemy import text
 
+logger = get_logger(__name__)
+
 class InventoryService:
+    """Service for managing inventory and purchase planning across all locations."""
+    
     def __init__(self):
-        self.engine = get_engine()
+        """Initialize inventory service with database engine."""
+        try:
+            self.engine = get_engine()
+            logger.debug("InventoryService initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize InventoryService: {str(e)}", exc_info=True)
+            raise
 
     def get_master_mapping(self):
-        """
-        Fetches the complete mapping from DB:
-        Channel Listing -> Pack -> Base Product
+        """Fetch channel listing to base product hierarchy mapping.
+        
+        Returns:
+            DataFrame: Complete mapping with columns:
+                - marketplace, channel_sku, pack_sku, pack_qty
+                - base_sku, product_name, supplier, category
         """
         query = """
         SELECT 
@@ -29,10 +48,25 @@ class InventoryService:
         return pd.read_sql(query, self.engine)
 
     def generate_purchase_plan(self, files_dict, params):
-        """
-        Main logic to calculate procurement needs.
-        files_dict: {'amazon': file, 'flipkart': file, 'meesho': file, 'stock': file}
-        params: {'sales_days': 30, 'lead_time': 10, ...}
+        """Calculate procurement needs based on marketplace sales demand.
+        
+        Aggregates sales from all marketplaces, factors in inventory levels and lead times,
+        and calculates required purchase quantities per supplier.
+        
+        Args:
+            files_dict: Dictionary of uploaded files
+                - 'amazon': Amazon sales report file
+                - 'flipkart': Flipkart sales report file  
+                - 'meesho': Meesho sales report file
+                - 'stock': Current stock file
+            params: Planning parameters dict
+                - 'sales_days': Historical days to analyze
+                - 'lead_time': Supplier lead time in days
+                - 'safety_stock': Safety stock multiplier
+                - 'min_order_qty': Minimum order quantity per supplier
+                
+        Returns:
+            tuple: (success_bool, report_message)
         """
         # 1. Parse Sales Files
         sales_dfs = []
