@@ -107,6 +107,8 @@ def render():
     # --- TAB 3: CHANNEL LISTINGS ---
     with tab3:
         st.subheader("Map Listings to Packs")
+        st.info("💡 **Remember**: Set 'selling_price' for each listing to enable profit calculations!")
+        
         with st.expander("➕ Add Listing", expanded=False):
             with st.form("new_listing_form"):
                 # DROPDOWN: Select from existing Packs
@@ -118,19 +120,33 @@ def render():
                 channel_sku = c2.text_input("Channel SKU / ASIN")
                 status = c3.selectbox("Status", ["LIVE", "INACTIVE", "SUPPRESSED"])
                 
+                selling_price = st.number_input("Selling Price (₹)", min_value=0.0, value=0.0, help="CRITICAL: Must be > 0 for profit calculation")
+                
                 if st.form_submit_button("Link Listing"):
+                    if selling_price <= 0:
+                        st.warning("⚠️ Warning: Selling price is 0. This SKU will show 0% margin until price is set.")
                     try:
                         service.add_listing({
                             "channel_sku": channel_sku, "marketplace": marketplace,
-                            "internal_sku": selected_pack, "listing_status": status
+                            "internal_sku": selected_pack, "listing_status": status,
+                            "selling_price": selling_price
                         })
                         st.success(f"Linked {channel_sku} -> {selected_pack}")
                         st.rerun()
+                    except ValueError as e:
+                        st.error(f"❌ {str(e)}")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
         # View/Edit Grid
         df_list = pd.read_sql("SELECT * FROM channel_listings", engine)
+        
+        # Highlight rows without prices
+        def highlight_missing_price(row):
+            if row['selling_price'] <= 0:
+                return ['background-color: #fff3cd'] * len(row)
+            return [''] * len(row)
+        
         edited_list = st.data_editor(df_list, key="editor_list", num_rows="dynamic")
         if st.button("Save Listing Changes"):
             with engine.connect() as conn:

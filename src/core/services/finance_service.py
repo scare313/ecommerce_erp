@@ -8,6 +8,7 @@ class FinanceService:
 
     def calculate_profitability(self, marketplace_filter=None):
         # 1. Fetch Core Data (Listings + Packs + Products + Config)
+        from sqlalchemy import text
         conn = self.engine.connect()
         
         query = """
@@ -23,10 +24,12 @@ class FinanceService:
         LEFT JOIN config c ON cl.marketplace = c.marketplace
         WHERE 1=1
         """
+        params = {}
         if marketplace_filter:
-            query += f" AND cl.marketplace = '{marketplace_filter}'"
+            query += " AND cl.marketplace = :marketplace"
+            params['marketplace'] = marketplace_filter
         
-        df = pd.read_sql(query, conn)
+        df = pd.read_sql(text(query), conn, params=params)
         
         # Fetch Rules
         pricing_rules = pd.read_sql("SELECT * FROM pricing_rules", conn)

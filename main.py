@@ -1,9 +1,24 @@
+import sys
+from pathlib import Path
+
 import streamlit as st
+
+# Add project root to Python path
+project_root = Path(__file__).parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from src.infrastructure.init_db import init_database
+
+# Initialize database on first run
+if not st.session_state.get("db_initialized"):
+    init_database()
+    st.session_state.db_initialized = True
 
 st.set_page_config(page_title="Ecommerce ERP", layout="wide")
 
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Profit Dashboard", "Gap Analysis", "Demand Planner", "Data Manager"])
+page = st.sidebar.radio("Go to", ["Profit Dashboard", "Gap Analysis", "Demand Planner", "Data Manager", "Inventory Manager"])
 
 if page == "Profit Dashboard":
     from src.ui.pages import profit_dashboard
@@ -17,3 +32,6 @@ elif page == "Demand Planner": # NEW
 elif page == "Data Manager":
     from src.ui.pages import data_manager
     data_manager.render()
+elif page == "Inventory Manager":
+    from src.ui.pages import inventory_manager
+    inventory_manager.render()

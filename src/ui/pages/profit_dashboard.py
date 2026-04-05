@@ -10,13 +10,23 @@ def render():
     
     df = service.calculate_profitability(mkt)
     
-    if df.empty or df['selling_price'].sum() == 0:
-        st.warning("No pricing data found. Please update 'Selling Price' in Data Manager.")
+    if df.empty:
+        st.warning("No listings found. Please add listings in Data Manager.")
+        return
+
+    # Calculate how many SKUs are missing prices
+    df_with_price = df[df['selling_price'] > 0]
+    df_without_price = df[df['selling_price'] <= 0]
+    
+    if len(df_without_price) > 0:
+        st.warning(f"⚠️ {len(df_without_price)} listing(s) missing selling price. Profit calculations will be inaccurate. Please set prices in Data Manager → Listings tab.")
+    
+    if df_with_price.empty:
+        st.error("❌ No pricing data found. Please update 'Selling Price' in Data Manager.")
         return
 
     # Filter & Sort
-    df = df[df['selling_price'] > 0]
-    df = df.sort_values('margin_pct')
+    df = df_with_price.sort_values('margin_pct')
 
     # Metrics
     c1, c2, c3, c4 = st.columns(4)

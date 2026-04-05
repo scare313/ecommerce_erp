@@ -41,9 +41,13 @@ class BulkService:
     def upload_full_catalog(self, file_buffer):
         """
         Reads a Multi-Tab Excel and updates tables in DEPENDENCY ORDER.
+        Uses CLEAR + INSERT (not replace) to preserve referential integrity.
         1. Products (Parents)
         2. Packs (Children)
         3. Listings (Grandchildren)
+        
+        ⚠️ WARNING: This function clears each table before inserting new data.
+        Only use if uploading a COMPLETE export from download_full_catalog()
         """
         try:
             xls = pd.ExcelFile(file_buffer)
@@ -65,16 +69,24 @@ class BulkService:
                 # Basic Cleaning
                 df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
                 
-                # Upsert to DB
-                with self.engine.connect() as conn:
-                    # We use 'replace' for MVP simplicity. 
-                    # In a strict environment, we would use upsert to preserve relationships, 
-                    # but 'replace' works here if the user uploads the FULL sheet.
-                    df.to_sql(table_name, conn, if_exists='replace', index=False)
+                # Validate not empty
+                if df.empty:
+                    logs.append(f"⚠️ Skipped {table_name}: No data in sheet.")
+                    return
                 
-                logs.append(f"✅ Updated {table_name}: {len(df)} rows.")
+                try:
+                    with self.engine.connect() as conn:
+                        # SAFE APPROACH: Clear then insert
+                        # (Preserves table structure and foreign keys)
+                        conn.execute(text(f"DELETE FROM {table_name}"))
+                        df.to_sql(table_name, conn, if_exists='append', index=False)
+                        conn.commit()
+                    
+                    logs.append(f"✅ Updated {table_name}: {len(df)} rows.")
+                except Exception as e:
+                    logs.append(f"❌ Error updating {table_name}: {str(e)}")
 
-            # EXECUTE IN ORDER
+            # EXECUTE IN DEPENDENCY ORDER
             update_table("Config", "config")
             update_table("Product_Master", "product_master")
             update_table("Pack_Master", "pack_master")
@@ -85,4 +97,4 @@ class BulkService:
             return True, "\n".join(logs)
 
         except Exception as e:
-            return False, str(e)
+            return False, f"Upload failed: {str(e)}"

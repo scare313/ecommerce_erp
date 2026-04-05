@@ -45,7 +45,21 @@ class CatalogService:
         self._insert('pack_master', data)
 
     def add_listing(self, data: dict):
-        self._insert('channel_listings', data)
+        """Add or update a channel listing. Prevents duplicates via primary key constraint."""
+        # Validate required fields
+        if not data.get('channel_sku') or not data.get('marketplace'):
+            raise ValueError("channel_sku and marketplace are required")
+        
+        # Warn if no price
+        if not data.get('selling_price') or data.get('selling_price') <= 0:
+            print(f"⚠️  Warning: Listing {data.get('channel_sku')} has no selling price. Profit calculations will be inaccurate.")
+        
+        try:
+            self._insert('channel_listings', data)
+        except Exception as e:
+            if "UNIQUE constraint failed" in str(e) or "PRIMARY KEY" in str(e):
+                raise ValueError(f"Listing already exists for {data['channel_sku']} on {data['marketplace']}. Use UPDATE to modify.")
+            raise
 
     def _insert(self, table, data):
         """Generic insert helper"""
