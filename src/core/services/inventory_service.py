@@ -70,17 +70,27 @@ class InventoryService:
         """
         # 1. Parse Sales Files
         sales_dfs = []
-        if files_dict.get('amazon'):
-            df, _ = parse_amazon_sales(files_dict['amazon'])
-            if df is not None: sales_dfs.append(df)
-            
-        if files_dict.get('flipkart'):
-            df, _ = parse_flipkart_sales(files_dict['flipkart'])
-            if df is not None: sales_dfs.append(df)
-            
-        if files_dict.get('meesho'):
-            df, _ = parse_meesho_sales(files_dict['meesho'])
-            if df is not None: sales_dfs.append(df)
+
+        # Dynamic parser dispatch
+        parser_map = {
+            'amazon': parse_amazon_sales,
+            'flipkart': parse_flipkart_sales,
+            'meesho': parse_meesho_sales,
+            # Future: 'myntra': parse_myntra_sales,
+        }
+        
+        for mkt_key, file_obj in files_dict.items():
+            if not file_obj:
+                continue
+            parser = parser_map.get(mkt_key.lower())
+            if not parser:
+                logger.warning(f"No parser available for marketplace: {mkt_key}")
+                continue
+            df, err = parser(file_obj)
+            if df is not None:
+                sales_dfs.append(df)
+            elif err:
+                logger.warning(f"{mkt_key} parse error: {err}")
 
         if not sales_dfs:
             return None, "No valid sales files provided."

@@ -88,3 +88,250 @@ Traceback (most recent call last):
   File "c:\Automation\erp\ecommerce_erp\.venv\Lib\site-packages\streamlit\elements\lib\utils.py", line 145, in _register_element_id
     raise StreamlitDuplicateElementKey(user_key)
 streamlit.errors.StreamlitDuplicateElementKey: There are multiple elements with the same `key='inventory_upload'`. To fix this, please make sure that the `key` argument is unique for each element you create.
+2026-05-18 16:43:58 - src.ui.pages.inventory_manager - ERROR - [inventory_manager.py:309] - Critical error in Inventory Manager render: cannot access local variable 'uploaded_file' where it is not associated with a value
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\ui\pages\inventory_manager.py", line 164, in render
+    if uploaded_file is not None:
+       ^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'uploaded_file' where it is not associated with a value
+2026-05-18 17:36:39 - __main__ - ERROR - [main.py:64] - Error rendering page 'Gap Analysis': expected 'except' or 'finally' block (gap_dashboard.py, line 103)
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\main.py", line 49, in <module>
+    from src.ui.pages import gap_dashboard
+  File "E:\AutomationProjects\ecommerce_erp\src\ui\pages\gap_dashboard.py", line 103
+    st.caption(f"Showing {len(pivot_table)} packs × {len(pivot_table.columns)} marketplaces")
+                                                                                             ^
+SyntaxError: expected 'except' or 'finally' block
+2026-05-18 18:00:52 - __main__ - ERROR - [main.py:70] - Error rendering page 'Data Manager': '{' was never closed (data_manager.py, line 270)
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\main.py", line 63, in <module>
+    from src.ui.pages import data_manager
+  File "E:\AutomationProjects\ecommerce_erp\src\ui\pages\data_manager.py", line 270
+    """), {"mkt": new_mkt, "zone": zone, "vd": vol
+          ^
+SyntaxError: '{' was never closed
+2026-05-18 19:23:48 - src.infrastructure.parsers - ERROR - [parsers.py:57] - Amazon file missing 'SKU' column
+2026-05-18 19:23:48 - src.infrastructure.parsers - ERROR - [parsers.py:68] - Error reading Amazon file: Passed header=1 but only 1 lines in file
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 51, in parse_amazon_sales
+    df = pd.read_csv(file_buffer, header=1)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 574, in pandas._libs.parsers.TextReader.__cinit__
+  File "pandas/_libs/parsers.pyx", line 677, in pandas._libs.parsers.TextReader._get_header
+pandas.errors.ParserError: Passed header=1 but only 1 lines in file
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:136] - Meesho file missing 'SKU' column
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:183] - Stock file must have 'SKU' and 'Qty' columns
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:183] - Stock file must have 'SKU' and 'Qty' columns
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:68] - Error reading Amazon file: No columns to parse from file
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 42, in parse_amazon_sales
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 581, in pandas._libs.parsers.TextReader.__cinit__
+pandas.errors.EmptyDataError: No columns to parse from file
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:108] - Error reading Flipkart file: No columns to parse from file
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 85, in parse_flipkart_sales
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 581, in pandas._libs.parsers.TextReader.__cinit__
+pandas.errors.EmptyDataError: No columns to parse from file
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:155] - Error reading Meesho file: No columns to parse from file
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 125, in parse_meesho_sales
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 581, in pandas._libs.parsers.TextReader.__cinit__
+pandas.errors.EmptyDataError: No columns to parse from file
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:194] - Error reading Stock file: No columns to parse from file
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 172, in parse_stock_file
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 581, in pandas._libs.parsers.TextReader.__cinit__
+pandas.errors.EmptyDataError: No columns to parse from file
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:57] - Amazon file missing 'SKU' column
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:68] - Error reading Amazon file: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 42, in parse_amazon_sales
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 574, in pandas._libs.parsers.TextReader.__cinit__
+  File "pandas/_libs/parsers.pyx", line 663, in pandas._libs.parsers.TextReader._get_header
+  File "pandas/_libs/parsers.pyx", line 874, in pandas._libs.parsers.TextReader._tokenize_rows
+  File "pandas/_libs/parsers.pyx", line 891, in pandas._libs.parsers.TextReader._check_tokenize_status
+  File "pandas/_libs/parsers.pyx", line 2053, in pandas._libs.parsers.raise_parser_error
+  File "<frozen codecs>", line 325, in decode
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:108] - Error reading Flipkart file: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 85, in parse_flipkart_sales
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 574, in pandas._libs.parsers.TextReader.__cinit__
+  File "pandas/_libs/parsers.pyx", line 663, in pandas._libs.parsers.TextReader._get_header
+  File "pandas/_libs/parsers.pyx", line 874, in pandas._libs.parsers.TextReader._tokenize_rows
+  File "pandas/_libs/parsers.pyx", line 891, in pandas._libs.parsers.TextReader._check_tokenize_status
+  File "pandas/_libs/parsers.pyx", line 2053, in pandas._libs.parsers.raise_parser_error
+  File "<frozen codecs>", line 325, in decode
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:155] - Error reading Meesho file: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 125, in parse_meesho_sales
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 574, in pandas._libs.parsers.TextReader.__cinit__
+  File "pandas/_libs/parsers.pyx", line 663, in pandas._libs.parsers.TextReader._get_header
+  File "pandas/_libs/parsers.pyx", line 874, in pandas._libs.parsers.TextReader._tokenize_rows
+  File "pandas/_libs/parsers.pyx", line 891, in pandas._libs.parsers.TextReader._check_tokenize_status
+  File "pandas/_libs/parsers.pyx", line 2053, in pandas._libs.parsers.raise_parser_error
+  File "<frozen codecs>", line 325, in decode
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+2026-05-18 19:23:49 - src.infrastructure.parsers - ERROR - [parsers.py:194] - Error reading Stock file: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\parsers.py", line 172, in parse_stock_file
+    df = pd.read_csv(file_buffer)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1898, in _make_engine
+    return mapping[engine](f, **self.options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "E:\AutomationProjects\ecommerce_erp\venv\Lib\site-packages\pandas\io\parsers\c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "pandas/_libs/parsers.pyx", line 574, in pandas._libs.parsers.TextReader.__cinit__
+  File "pandas/_libs/parsers.pyx", line 663, in pandas._libs.parsers.TextReader._get_header
+  File "pandas/_libs/parsers.pyx", line 874, in pandas._libs.parsers.TextReader._tokenize_rows
+  File "pandas/_libs/parsers.pyx", line 891, in pandas._libs.parsers.TextReader._check_tokenize_status
+  File "pandas/_libs/parsers.pyx", line 2053, in pandas._libs.parsers.raise_parser_error
+  File "<frozen codecs>", line 325, in decode
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 4: invalid start byte
+2026-05-18 19:30:24 - src.core.services.finance_service - ERROR - [finance_service.py:165] - Error during profitability calculations: Simulated DB failure
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\core\services\finance_service.py", line 64, in calculate_profitability
+    df = pd.read_sql(text(query), conn, params=params)
+  File "E:\AutomationProjects\ecommerce_erp\tests\unit\test_finance_service.py", line 912, in boom
+    raise RuntimeError("Simulated DB failure")
+RuntimeError: Simulated DB failure
+2026-05-18 19:34:10 - src.core.services.finance_service - ERROR - [finance_service.py:165] - Error during profitability calculations: Simulated DB failure
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\core\services\finance_service.py", line 64, in calculate_profitability
+    df = pd.read_sql(text(query), conn, params=params)
+  File "E:\AutomationProjects\ecommerce_erp\tests\unit\test_finance_service.py", line 917, in boom
+    raise RuntimeError("Simulated DB failure")
+RuntimeError: Simulated DB failure
+2026-05-18 19:36:07 - src.core.services.finance_service - ERROR - [finance_service.py:165] - Error during profitability calculations: Simulated DB failure
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\core\services\finance_service.py", line 64, in calculate_profitability
+    df = pd.read_sql(text(query), conn, params=params)
+  File "E:\AutomationProjects\ecommerce_erp\tests\unit\test_finance_service.py", line 927, in boom
+    raise RuntimeError("Simulated DB failure")
+RuntimeError: Simulated DB failure
+2026-05-18 19:42:29 - src.core.services.gap_service - ERROR - [gap_service.py:103] - Error during gap analysis processing: Simulated DB failure
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\core\services\gap_service.py", line 40, in get_gap_matrix
+    packs = pd.read_sql("SELECT pack_sku, master_sku FROM pack_master", self.engine)
+  File "E:\AutomationProjects\ecommerce_erp\tests\unit\test_gap_service.py", line 186, in boom
+    raise RuntimeError("Simulated DB failure")
+RuntimeError: Simulated DB failure

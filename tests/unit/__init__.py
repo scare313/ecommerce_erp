@@ -1,0 +1,1 @@
+"""Unit tests for Ecommerce ERP — fast, isolated, no DB or filesystem I/O."""

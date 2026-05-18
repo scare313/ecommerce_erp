@@ -45,7 +45,7 @@ class GapService:
                 markets = pd.read_sql("SELECT marketplace FROM config", self.engine)
                 if markets.empty:
                     logger.warning("No marketplaces configured, using defaults")
-                    market_list = ["Amazon", "Flipkart", "Meesho"]
+                    return pd.DataFrame()
                 else:
                     market_list = markets['marketplace'].tolist()
                 logger.debug(f"Using {len(market_list)} marketplaces: {market_list}")

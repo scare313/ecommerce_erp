@@ -13,6 +13,12 @@ from src.core.services.catalog_service import CatalogService
 from src.core.services.bulk_service import BulkService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
+from src.core.cache import clear_catalog_cache
+from src.core.cache import get_marketplaces
+from sqlalchemy import text
+from src.infrastructure.database import get_engine
+from src.infrastructure.logger import get_logger
+from src.core.services.catalog_service import CatalogService
 
 logger = get_logger(__name__)
 
@@ -68,6 +74,7 @@ def render():
                                 "mfg_cost": mfg_cost, "packaging_cost": pkg_cost, 
                                 "labeling_labor": labor, "gst_rate": gst, "lifecycle_status": status
                             })
+                            clear_catalog_cache()
                             logger.info(f"Product created successfully: {sku}")
                             st.success(f"Created {sku}")
                             st.rerun()
@@ -126,6 +133,7 @@ def render():
                                 "quantity": qty, "packaging_cogs": pack_cost,
                                 "final_wt_kg": weight
                             })
+                            clear_catalog_cache()
                             logger.info(f"Pack created successfully: {pack_sku}")
                             st.success(f"Created Pack {pack_sku}")
                             st.rerun()
@@ -167,7 +175,7 @@ def render():
                         selected_pack = None
                     
                     c1, c2, c3 = st.columns(3)
-                    marketplace = c1.selectbox("Marketplace", ["Amazon", "Flipkart", "Meesho"])
+                    marketplace = st.selectbox("Marketplace", get_marketplaces(), key="listing_mkt")
                     channel_sku = c2.text_input("Channel SKU / ASIN")
                     status = c3.selectbox("Status", ["LIVE", "INACTIVE", "SUPPRESSED"])
                     
@@ -183,6 +191,7 @@ def render():
                                 "internal_sku": selected_pack, "listing_status": status,
                                 "selling_price": selling_price
                             })
+                            clear_catalog_cache()
                             logger.info(f"Listing created: {channel_sku} on {marketplace}")
                             st.success(f"Linked {channel_sku} -> {selected_pack}")
                             st.rerun()
@@ -248,6 +257,228 @@ def render():
             except Exception as e:
                 logger.error(f"Error loading {rule_choice}: {str(e)}", exc_info=True)
                 st.error(f"Error loading {rule_choice}: {e}")
+            
+            # ============================================================
+            # MARKETPLACE MANAGEMENT (inside tab4 — Config & Rules)
+            # ============================================================
+            st.divider()
+            st.subheader("🌐 Marketplace Management")
+            st.caption("Add or remove marketplaces. Changes reflect across all dashboards.")
+
+            # Show existing marketplaces
+            try:
+                existing_df = pd.read_sql(
+                    "SELECT marketplace, default_zone, volumetric_divisor, gst_on_fees FROM config ORDER BY marketplace",
+                    engine
+                )
+                
+                if not existing_df.empty:
+                    st.markdown("**Configured Marketplaces:**")
+                    st.dataframe(
+                        existing_df.rename(columns={
+                            'marketplace': 'Marketplace',
+                            'default_zone': 'Default Zone',
+                            'volumetric_divisor': 'Vol. Divisor',
+                            'gst_on_fees': 'GST on Fees (%)'
+                        }),
+                        width='stretch',
+                        hide_index=True
+                    )
+                else:
+                    st.info("No marketplaces configured yet. Add your first one below.")
+            except Exception as e:
+                logger.error(f"Failed to load existing marketplaces: {str(e)}", exc_info=True)
+                st.error(f"Could not load existing marketplaces: {str(e)}")
+                existing_df = pd.DataFrame()
+
+            # Two-column layout: Add (left) | Remove (right)
+            col_add, col_remove = st.columns(2)
+
+            # ---------- ADD MARKETPLACE ----------
+            with col_add:
+                st.markdown("##### ➕ Add Marketplace")
+                with st.form("add_marketplace", clear_on_submit=True):
+                    new_mkt = st.text_input(
+                        "Marketplace Name",
+                        placeholder="e.g., Myntra, Ajio, JioMart",
+                        help="Must be unique. Will appear in all dashboards."
+                    )
+                    zone = st.selectbox(
+                        "Default Zone",
+                        ["Local", "Regional", "National"],
+                        index=2,
+                        help="Default shipping zone for fee calculations"
+                    )
+                    vol_div = st.number_input(
+                        "Volumetric Divisor",
+                        value=5000,
+                        min_value=1000,
+                        max_value=10000,
+                        step=100,
+                        help="Used for volumetric weight: (L×W×H)/divisor. Amazon=5000, Flipkart=5000, Meesho=4000"
+                    )
+                    gst_fees = st.number_input(
+                        "GST on Fees (%)",
+                        value=18.0,
+                        min_value=0.0,
+                        max_value=28.0,
+                        step=0.5,
+                        help="GST applied on platform fees (typically 18%)"
+                    )
+                    
+                    submitted = st.form_submit_button("Add Marketplace", type="primary")
+                    
+                    if submitted:
+                        # ----- Validation -----
+                        new_mkt_clean = (new_mkt or "").strip()
+                        
+                        if not new_mkt_clean:
+                            st.error("❌ Marketplace name cannot be empty.")
+                            logger.warning("Add marketplace attempted with empty name")
+                        elif len(new_mkt_clean) > 50:
+                            st.error("❌ Marketplace name must be 50 characters or fewer.")
+                            logger.warning(f"Add marketplace name too long: {len(new_mkt_clean)} chars")
+                        elif not existing_df.empty and new_mkt_clean.lower() in existing_df['marketplace'].str.lower().tolist():
+                            st.error(f"❌ Marketplace '{new_mkt_clean}' already exists. Use a unique name.")
+                            logger.warning(f"Duplicate marketplace insert blocked: {new_mkt_clean}")
+                        else:
+                            # ----- Insert -----
+                            try:
+                                logger.info(f"Adding new marketplace: {new_mkt_clean}")
+                                with engine.connect() as conn:
+                                    conn.execute(text("""
+                                        INSERT INTO config (marketplace, default_zone, volumetric_divisor, gst_on_fees)
+                                        VALUES (:mkt, :zone, :vd, :gst)
+                                    """), {
+                                        "mkt": new_mkt_clean,
+                                        "zone": zone,
+                                        "vd": int(vol_div),
+                                        "gst": float(gst_fees)
+                                    })
+                                    conn.commit()
+                                
+                                logger.info(f"✅ Marketplace '{new_mkt_clean}' added successfully")
+                                st.success(
+                                    f"✅ Marketplace **{new_mkt_clean}** added!\n\n"
+                                    f"Next steps:\n"
+                                    f"1. Add **Pricing Rules** for this marketplace (Referral % per category)\n"
+                                    f"2. Add **Shipping Rules** (weight slabs and zone fees)\n"
+                                    f"3. Create **Listings** in the Listings tab"
+                                )
+                                
+                                # Invalidate caches so dropdowns refresh everywhere
+                                try:
+                                    from src.infrastructure.cache import invalidate_all_caches
+                                    invalidate_all_caches()
+                                except ImportError:
+                                    # Cache module might not be set up yet — fall back to clearing st.cache_data
+                                    st.cache_data.clear()
+                                
+                                st.rerun()
+                            
+                            except Exception as e:
+                                logger.error(f"Failed to add marketplace '{new_mkt_clean}': {str(e)}", exc_info=True)
+                                st.error(f"❌ Failed to add marketplace: {str(e)}")
+
+            # ---------- REMOVE MARKETPLACE ----------
+            with col_remove:
+                st.markdown("##### 🗑️ Remove Marketplace")
+                
+                if existing_df.empty:
+                    st.info("Nothing to remove yet.")
+                else:
+                    with st.form("remove_marketplace"):
+                        mkt_to_remove = st.selectbox(
+                            "Select Marketplace to Remove",
+                            options=existing_df['marketplace'].tolist(),
+                            help="⚠️ This will also affect listings/rules tied to this marketplace"
+                        )
+                        
+                        # Show impact preview
+                        try:
+                            with engine.connect() as conn:
+                                listing_count = conn.execute(
+                                    text("SELECT COUNT(*) FROM channel_listings WHERE marketplace = :m"),
+                                    {"m": mkt_to_remove}
+                                ).scalar() or 0
+                                
+                                pricing_count = conn.execute(
+                                    text("SELECT COUNT(*) FROM pricing_rules WHERE marketplace = :m"),
+                                    {"m": mkt_to_remove}
+                                ).scalar() or 0
+                                
+                                shipping_count = conn.execute(
+                                    text("SELECT COUNT(*) FROM shipping_rules WHERE marketplace = :m"),
+                                    {"m": mkt_to_remove}
+                                ).scalar() or 0
+                            
+                            if listing_count or pricing_count or shipping_count:
+                                st.warning(
+                                    f"⚠️ **Impact preview for '{mkt_to_remove}':**\n"
+                                    f"- {listing_count} listings\n"
+                                    f"- {pricing_count} pricing rules\n"
+                                    f"- {shipping_count} shipping rules\n\n"
+                                    f"These will become orphaned. Consider exporting via Bulk Operations first."
+                                )
+                        except Exception as e:
+                            logger.error(f"Failed to compute impact preview: {str(e)}", exc_info=True)
+                        
+                        confirm = st.checkbox(
+                            f"I understand and confirm removal of '{mkt_to_remove}'",
+                            key="confirm_remove_mkt"
+                        )
+                        cascade = st.checkbox(
+                            "Also delete its listings, pricing rules, and shipping rules (cascade)",
+                            value=False,
+                            help="If unchecked, only the config row is removed and related rules are kept (orphaned)."
+                        )
+                        
+                        remove_submitted = st.form_submit_button("Remove Marketplace", type="secondary")
+                        
+                        if remove_submitted:
+                            if not confirm:
+                                st.error("❌ Please confirm by checking the box above.")
+                            else:
+                                try:
+                                    logger.info(f"Removing marketplace: {mkt_to_remove} (cascade={cascade})")
+                                    with engine.connect() as conn:
+                                        if cascade:
+                                            conn.execute(
+                                                text("DELETE FROM channel_listings WHERE marketplace = :m"),
+                                                {"m": mkt_to_remove}
+                                            )
+                                            conn.execute(
+                                                text("DELETE FROM pricing_rules WHERE marketplace = :m"),
+                                                {"m": mkt_to_remove}
+                                            )
+                                            conn.execute(
+                                                text("DELETE FROM shipping_rules WHERE marketplace = :m"),
+                                                {"m": mkt_to_remove}
+                                            )
+                                            logger.info(f"Cascade-deleted related rows for {mkt_to_remove}")
+                                        
+                                        conn.execute(
+                                            text("DELETE FROM config WHERE marketplace = :m"),
+                                            {"m": mkt_to_remove}
+                                        )
+                                        conn.commit()
+                                    
+                                    logger.info(f"✅ Marketplace '{mkt_to_remove}' removed")
+                                    st.success(f"✅ Marketplace **{mkt_to_remove}** removed successfully.")
+                                    
+                                    # Invalidate caches
+                                    try:
+                                        from src.infrastructure.cache import invalidate_all_caches
+                                        invalidate_all_caches()
+                                    except ImportError:
+                                        st.cache_data.clear()
+                                    
+                                    st.rerun()
+                                
+                                except Exception as e:
+                                    logger.error(f"Failed to remove marketplace '{mkt_to_remove}': {str(e)}", exc_info=True)
+                                    st.error(f"❌ Failed to remove marketplace: {str(e)}")
+            
 
         # --- TAB 5: BULK OPERATIONS (EXCEL) ---
         with tab5:

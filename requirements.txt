@@ -6,3 +6,6 @@ openpyxl
 xlsxwriter
 numpy
 matplotlib
+pytest
+pytest-cov
+pytest-mock

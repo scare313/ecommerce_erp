@@ -10,6 +10,7 @@ import streamlit as st
 import pandas as pd
 from src.core.services.gap_service import GapService
 from src.infrastructure.logger import get_logger
+from src.core.cache import get_gap_matrix_cached
 
 logger = get_logger(__name__)
 
@@ -23,7 +24,7 @@ def render():
         try:
             service = GapService()
             logger.debug("GapService initialized")
-            df = service.get_gap_matrix()
+            df = get_gap_matrix_cached()
             logger.info(f"Gap matrix retrieved: {len(df)} rows")
         except Exception as e:
             logger.error(f"Error loading gap data: {str(e)}", exc_info=True)
@@ -59,35 +60,48 @@ def render():
 
         logger.debug(f"Filters applied: gaps_only={show_gaps_only}, search={search_query}")
 
-        # --- PIVOT TABLE ---
-        # Values are now Integers (Counts), so no duplicates possible
-        pivot_table = df.pivot(index='pack_sku', columns='marketplace', values='listing_count')
+                # --- PIVOT TABLE ---
+        st.subheader("📊 Listing Coverage Matrix")
 
-        # 1. Apply Search
-        if search_query:
-            pivot_table = pivot_table[pivot_table.index.str.contains(search_query, case=False)]
-            logger.debug(f"Search filtered to {len(pivot_table)} rows")
+        # Build pivot: rows=pack_sku, cols=marketplace, values=listing_count (0 or 1)
+        pivot_table = df.pivot_table(
+            index='pack_sku',
+            columns='marketplace',
+            values='listing_count',
+            fill_value=0
+        )
 
-        # 2. Apply "Gaps Only" Filter
+        # Apply "Show only Missing" filter
         if show_gaps_only:
-            # Keep rows where ANY column is 0
             mask = (pivot_table == 0).any(axis=1)
             pivot_table = pivot_table[mask]
+            logger.debug(f"Filtered to {len(pivot_table)} packs with gaps")
 
-        # --- VISUALIZATION ---
+        # Apply search filter
+        if search_query:
+            pivot_table = pivot_table[
+                pivot_table.index.str.contains(search_query, case=False, na=False)
+            ]
+            logger.debug(f"After search filter: {len(pivot_table)} packs")
+
+        if pivot_table.empty:
+            st.info("No packs match your filters.")
+            return
+
+        # Color-code: 0 = red (missing), 1 = green (listed)
         def color_cells(val):
             if val == 0:
-                return 'background-color: #ffe6e6; color: #cc0000; font-weight: bold;' # Red
+                return 'background-color: #ffcccc; color: #cc0000;'
             else:
-                return 'background-color: #e6fffa; color: #006600;' # Green
+                return 'background-color: #ccffcc; color: #006600;'
 
-        st.write(f"Showing **{len(pivot_table)}** Packs.")
-        
         st.dataframe(
             pivot_table.style.map(color_cells),
             width='stretch',
-            height=700
+            height=600
         )
+
+        st.caption(f"Showing {len(pivot_table)} packs × {len(pivot_table.columns)} marketplaces")
     except Exception as e:
         logger.error(f"Critical error in Gap Dashboard render: {str(e)}", exc_info=True)
         st.error(f"Critical error: {e}")

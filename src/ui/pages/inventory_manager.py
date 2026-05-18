@@ -12,6 +12,7 @@ import io
 from src.core.services.inventory_service import InventoryService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
+from src.core.cache import clear_inventory_cache
 from sqlalchemy import text
 
 logger = get_logger(__name__)
@@ -154,7 +155,12 @@ def render():
             | ARMSLEEVES-FULL-BLACK | 5 | 1 |
             """)
             
-            uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx', 'xls'], key="inventory_upload")
+            # In Tab 4 (Bulk Update)
+            uploaded_file = st.file_uploader(
+                "Upload stock file",
+                type=['xlsx', 'csv'],
+                key='inv_bulk_upload'   # ← unique key
+            )
             
             if uploaded_file is not None:
                 try:
@@ -243,6 +249,7 @@ def render():
                                         
                                         # Commit all changes
                                         conn.commit()
+                                        clear_inventory_cache()
                                         logger.info(f"Inventory import completed: {updated_count} records updated, {len(not_found)} not found")
                                         print(f"✅ Database committed: {updated_count} records updated")
                                         

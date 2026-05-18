@@ -37,10 +37,24 @@ try:
     st.set_page_config(page_title="Ecommerce ERP", layout="wide")
 
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Profit Dashboard", "Gap Analysis", "Demand Planner", "Data Manager", "Inventory Manager"])
+    page = st.sidebar.radio(
+        "Go to",
+        ["Home", "Profit Dashboard", "Gap Analysis", "Demand Planner",
+        "Data Manager", "Inventory Manager"]
+    )
+
+    st.sidebar.divider()
+    if st.sidebar.button("🔄 Refresh Data"):
+        from src.core.cache import clear_all_caches
+        clear_all_caches()
+        st.rerun()
 
     try:
-        if page == "Profit Dashboard":
+        if page == "Home":
+            logger.debug("Loading Home Dashboard...")
+            from src.ui.pages import home_dashboard
+            home_dashboard.render()
+        elif page == "Profit Dashboard":
             logger.debug("Loading Profit Dashboard...")
             from src.ui.pages import profit_dashboard
             profit_dashboard.render()

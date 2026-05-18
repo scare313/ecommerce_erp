@@ -647,13 +647,121 @@ Gap Analysis Dashboard
 
 ### Testing
 
-```bash
-# Run basic import tests
-python -c "from src.core.services.catalog_service import CatalogService; print('✅ Import successful')"
+The project uses **pytest** with an in-memory SQLite database for fast, isolated tests. No real data or files are touched during test runs.
 
-# Verify database connection
-python -c "from src.infrastructure.database import get_engine; print(get_engine())"
+### Test Suite Overview
+
+| Module Tested | Test File | # Tests | Focus |
+|---|---|---|---|
+| `parsers.py` | `tests/unit/test_parsers.py` | ~45 | Sales/stock file parsing (Amazon, Flipkart, Meesho) |
+| `finance_service.py` | `tests/unit/test_finance_service.py` | 42 | Profitability calc: fees, GST, margin, net profit |
+| `gap_service.py` | `tests/unit/test_gap_service.py` | 12 | Pack × marketplace gap matrix |
+
+**Total: ~99 unit tests** covering critical business logic.
+
+### Prerequisites
+
+Install testing dependencies (already included in `requirements.txt`):
+
+```bash
+pip install -r requirements.txt
 ```
+
+### This installs:
+
+`pytest` — test runner
+`pytest-cov` — coverage reporting
+`pytest-mock` — mocking helpers
+
+### Running Tests
+
+```bash
+# Run the entire test suite
+pytest
+# Verbose output (recommended)
+pytest -v
+# Run a specific test file
+pytest tests/unit/test_finance_service.py -v
+# Run a specific test class
+pytest tests/unit/test_finance_service.py::TestReferralFee -v
+# Run a single test
+pytest tests/unit/test_finance_service.py::TestReferralFee::test_amazon_tshirt_pk1_referral
+```
+### Filtering by Marker
+Tests are tagged with markers (defined in `pytest.ini`):
+
+```bash
+# Run only unit tests
+pytest -m unit
+# Run only finance service tests
+pytest -m finance
+# Run only gap analysis tests
+pytest -m gap
+# Run only parser tests
+pytest -m parsers
+# Combine markers (e.g., unit AND finance)
+pytest -m "unit and finance"
+```
+### Coverage Reports
+
+```bash
+# Console coverage report
+pytest --cov=src --cov-report=term-missing
+# Coverage for a specific module
+pytest --cov=src.core.services.finance_service --cov-report=term-missing
+# Generate HTML coverage report (open htmlcov/index.html)
+pytest --cov=src --cov-report=html
+```
+
+### Test Architecture
+
+#### In-memory SQLite
+- Every test gets a fresh `:memory:` database.
+- No state leaks between tests.
+
+#### Schema Mirrors Production
+- `tests/conftest.py` creates the same tables as `src/infrastructure/schema.sql`:
+  - `product_master`
+  - `pack_master`
+  - `channel_listings`
+  - `pricing_rules`
+  - `shipping_rules`
+  - `config`
+- Refer to: [schema.sql](schema.sql)
+
+#### Seeded Data
+- The `seeded_engine` fixture provides realistic sample data:
+  - 2 products
+  - 3 packs
+  - 3 listings across Amazon/Flipkart
+  - Full pricing/shipping rules
+
+#### No File I/O
+- Parser tests use `io.BytesIO` buffers instead of real CSV/XLSX files.
+
+#### Service Patching
+- The `patch_get_engine` fixture redirects `get_engine()` calls in [`database.py`](database.py) to the in-memory DB so services run unmodified.
+
+### Adding New Tests
+
+- Place tests under tests/unit/ (or tests/integration/ if hitting real DB).
+- Use existing fixtures from tests/conftest.py - don't recreate engines or seed data.
+- Tag with appropriate markers: @pytest.mark.unit, @pytest.mark.finance, etc.
+- Follow the naming convention: test_*.py for files, Test* for classes, test_* for functions.
+- Example:
+
+```bash
+import pytest
+from src.core.services.finance_service import FinanceService
+
+@pytest.mark.unit
+@pytest.mark.finance
+def test_my_new_scenario(patch_get_engine, assert_close):
+    service = FinanceService()
+    df = service.calculate_profitability(marketplace_filter="Amazon")
+    assert_close(df.iloc[0]["ref_fee"], 84.83, tol=0.5)
+```
+
 
 ---
 
