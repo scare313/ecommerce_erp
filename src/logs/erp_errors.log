@@ -335,3 +335,28 @@ Traceback (most recent call last):
   File "E:\AutomationProjects\ecommerce_erp\tests\unit\test_gap_service.py", line 186, in boom
     raise RuntimeError("Simulated DB failure")
 RuntimeError: Simulated DB failure
+2026-05-18 21:09:58 - src.infrastructure.parsers - ERROR - [parsers.py:57] - Amazon file missing 'SKU' column
+2026-05-18 21:09:58 - src.ui.pages.demand_planner - ERROR - [demand_planner.py:91] - Purchase plan generation failed: No valid sales files provided.
+2026-05-19 10:02:04 - src.infrastructure.migration_script - ERROR - [migration_script.py:124] - No Excel (.xlsx) file found in data/raw_reports/
+2026-05-19 10:02:04 - src.infrastructure.migration_script - ERROR - [migration_script.py:311] - Data validation during migration failed: No Excel (.xlsx) file found in data/raw_reports/
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\migration_script.py", line 125, in run_migration
+    raise DataValidationException(error_msg)
+src.infrastructure.logger.DataValidationException: No Excel (.xlsx) file found in data/raw_reports/
+2026-05-19 10:02:04 - src.infrastructure.init_db - ERROR - [init_db.py:149] - Initial data migration failed: No Excel (.xlsx) file found in data/raw_reports/
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\init_db.py", line 145, in _create_new_database
+    run_migration()
+    ~~~~~~~~~~~~~^^
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\migration_script.py", line 125, in run_migration
+    raise DataValidationException(error_msg)
+src.infrastructure.logger.DataValidationException: No Excel (.xlsx) file found in data/raw_reports/
+2026-05-19 10:02:04 - __main__ - ERROR - [main.py:29] - Database initialization returned False
+2026-05-19 10:06:44 - src.infrastructure.migration_script - ERROR - [migration_script.py:124] - No Excel (.xlsx) file found in data/raw_reports/
+2026-05-19 10:06:44 - src.infrastructure.migration_script - ERROR - [migration_script.py:311] - Data validation during migration failed: No Excel (.xlsx) file found in data/raw_reports/
+Traceback (most recent call last):
+  File "E:\AutomationProjects\ecommerce_erp\src\infrastructure\migration_script.py", line 125, in run_migration
+    raise DataValidationException(error_msg)
+src.infrastructure.logger.DataValidationException: No Excel (.xlsx) file found in data/raw_reports/
+2026-05-19 10:07:17 - src.infrastructure.listing_parsers - ERROR - [listing_parsers.py:255] - Failed to read Flipkart Excel: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2026-05-19 10:10:25 - src.infrastructure.listing_parsers - ERROR - [listing_parsers.py:255] - Failed to read Flipkart Excel: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.

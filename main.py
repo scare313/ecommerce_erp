@@ -39,9 +39,27 @@ try:
     st.sidebar.title("Navigation")
     page = st.sidebar.radio(
         "Go to",
-        ["Home", "Profit Dashboard", "Gap Analysis", "Demand Planner",
+        ["Home", "Onboarding Wizard", "Profit Dashboard", "Gap Analysis", "Demand Planner",
         "Data Manager", "Inventory Manager"]
     )
+
+    # Empty-DB detection banner — guides new users to the wizard
+    try:
+        from src.infrastructure.database import get_engine
+        from sqlalchemy import text
+        with get_engine().connect() as conn:
+            product_count = conn.execute(
+                text("SELECT COUNT(*) FROM product_master")
+            ).scalar() or 0
+        if product_count == 0:
+            st.sidebar.warning(
+                "👋 **New here?**\n\n"
+                "Your catalog is empty. Start with the **Onboarding Wizard** "
+                "to import data from your marketplaces."
+            )
+    except Exception as e:
+        # Don't break navigation if DB check fails
+        logger.debug(f"Empty-DB check skipped: {e}")
 
     st.sidebar.divider()
     if st.sidebar.button("🔄 Refresh Data"):
@@ -54,6 +72,10 @@ try:
             logger.debug("Loading Home Dashboard...")
             from src.ui.pages import home_dashboard
             home_dashboard.render()
+        elif page == "Onboarding Wizard":
+            logger.debug("Loading Onboarding Wizard...")
+            from src.ui.pages import onboarding_wizard
+            onboarding_wizard.render()
         elif page == "Profit Dashboard":
             logger.debug("Loading Profit Dashboard...")
             from src.ui.pages import profit_dashboard

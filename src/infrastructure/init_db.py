@@ -5,7 +5,9 @@ Handles database creation, schema deployment, and data migration on application 
 import os
 from sqlalchemy import create_engine, text, event
 from src.infrastructure.migration_script import run_migration
-from src.infrastructure.logger import get_logger, DatabaseException, ConfigException
+from src.infrastructure.logger import (
+    get_logger, DatabaseException, ConfigException, DataValidationException
+)
 
 logger = get_logger(__name__)
 
@@ -74,14 +76,27 @@ def _check_and_migrate_existing_db():
             logger.info(f"✅ Database is healthy. Found {product_count} products ready for use.")
             return True
         else:
-            logger.warning("Database exists but is empty. Running migration...")
+            logger.warning("Database exists but is empty. Attempting migration...")
             try:
                 run_migration()
                 logger.info("✅ Database migration completed successfully.")
                 return True
+            except DataValidationException as e:
+                err_msg = str(e).lower()
+                if "no excel" in err_msg or "not found" in err_msg:
+                    logger.warning(
+                        "⚠️ Database is empty and no Master Catalog Excel found. "
+                        "Use the Onboarding Wizard to bootstrap your catalog."
+                    )
+                    return True  # Empty DB is OK — wizard will handle
+                logger.error(f"Migration validation failed: {str(e)}", exc_info=True)
+                return False
             except Exception as e:
                 logger.error(f"Migration failed: {str(e)}", exc_info=True)
-                return False
+                logger.warning(
+                    "Migration error — please use the Onboarding Wizard."
+                )
+                return True  # Schema works; let user reach the wizard
                 
     except Exception as e:
         logger.warning(f"Error checking existing database: {str(e)}. Attempting migration...", exc_info=True)
@@ -89,9 +104,20 @@ def _check_and_migrate_existing_db():
             run_migration()
             logger.info("✅ Database migration completed after error recovery.")
             return True
+        except DataValidationException as migration_error:
+            err_msg = str(migration_error).lower()
+            if "no excel" in err_msg or "not found" in err_msg:
+                logger.warning(
+                    "⚠️ Recovery skipped: no Master Catalog Excel. "
+                    "Use the Onboarding Wizard to bootstrap your catalog."
+                )
+                return True
+            logger.error(f"Migration validation failed: {str(migration_error)}", exc_info=True)
+            return False
         except Exception as migration_error:
             logger.error(f"Migration also failed: {str(migration_error)}", exc_info=True)
-            return False
+            logger.warning("You may still use the Onboarding Wizard.")
+            return True
 
 
 def _create_new_database():
@@ -140,15 +166,34 @@ def _create_new_database():
             logger.info(f"✅ Database schema created successfully. Executed {executed_successfully} statements.")
         
         # Load initial data via migration
-        logger.info("Loading initial data from Master Catalog...")
+        # Load initial data via migration (OPTIONAL — wizard can bootstrap instead)
+        logger.info("Attempting to load initial data from Master Catalog...")
         try:
             run_migration()
             logger.info("✅ Initial data migration completed successfully.")
             return True
-        except Exception as e:
-            logger.error(f"Initial data migration failed: {str(e)}", exc_info=True)
-            logger.warning("Database schema created but initial data load failed. Please check migration_script.py")
+        except DataValidationException as e:
+            # Specific case: no Excel file found → that's OK, wizard will handle it
+            err_msg = str(e).lower()
+            if "no excel" in err_msg or "not found" in err_msg:
+                logger.warning(
+                    "⚠️ No Master Catalog Excel found in data/raw_reports/. "
+                    "Schema is ready — please use the Onboarding Wizard to "
+                    "bootstrap your catalog from marketplace files."
+                )
+                return True  # Schema exists; wizard will populate it
+            # Other validation errors are still fatal
+            logger.error(f"Migration validation failed: {str(e)}", exc_info=True)
             return False
+        except Exception as e:
+            # Unexpected migration error — schema is created, but log loudly.
+            # Still return True so the user can reach the Onboarding Wizard.
+            logger.error(f"Initial data migration failed: {str(e)}", exc_info=True)
+            logger.warning(
+                "Database schema created but migration encountered an error. "
+                "You may still use the Onboarding Wizard to bootstrap the catalog."
+            )
+            return True
             
     except ConfigException:
         raise
