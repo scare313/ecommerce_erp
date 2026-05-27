@@ -212,6 +212,11 @@ Tracks each marketplace listing for a pack.
 | `last_updated` | VARCHAR(50) | Last update timestamp |
 | `comment` | TEXT | Internal notes |
 
+### Decoupled Configuration & Rules Sheets
+
+> [!NOTE]
+> To keep the core SQLite database lean and transaction-focused, all pricing rules, shipping rules, and marketplace configurations are completely decoupled into a master Excel file at [market_rules.xlsx](file:///c:/Automation/ecommerce_erp-development/data/config/market_rules.xlsx). These rules are loaded dynamically by our services, but can fall back to SQL tables during isolated in-memory unit tests.
+
 #### 4. `pricing_rules` - Marketplace Fee Rules
 Stores referral and closing fees per marketplace and category.
 
@@ -371,6 +376,10 @@ upload_full_catalog(buffer)    # Import from multi-sheet Excel
 | **Gap Analysis** | Gap Service + UI | ✅ Active |
 | **Bulk Catalog Import/Export** | Bulk Service | ✅ Active |
 | **Multi-Marketplace Support** | Finance Service | ✅ Active (Amazon, Flipkart, Meesho) |
+| **Decoupled Excel Config** | Infrastructure + UI | ✅ Active (`data/config/market_rules.xlsx`) |
+| **Onboarding Category Mapping** | Onboarding Wizard | ✅ Active (Interactive Step 3 + Rule Creator) |
+| **Statutory Taxes (TCS/TDS)** | Finance Service | ✅ Active (0.5% TCS + 0.1% TDS) |
+| **Amazon Parent SKU Filtering** | listing_parsers | ✅ Active (Filters out Parent SKUs) |
 | **Volumetric Weight Calculation** | Finance Service | ✅ Active |
 | **Platform Fee Calculation** | Finance Service | ✅ Active |
 | **Shipping Cost Calculation** | Finance Service | ✅ Active |
