@@ -3,8 +3,9 @@
 Loads initial data from Excel files and populates database tables in dependency order.
 """
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 import os
+from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger, DatabaseException, DataValidationException
 
 logger = get_logger(__name__)
@@ -12,24 +13,7 @@ logger = get_logger(__name__)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
-DB_PATH = os.path.join(PROJECT_ROOT, "data", "db", "ecommerce.db")
 RAW_DIR = os.path.join(PROJECT_ROOT, "data", "raw_reports")
-DB_URL = f"sqlite:///{DB_PATH}"
-
-def get_engine():
-    """Create SQLAlchemy engine for database connections.
-    
-    Returns:
-        SQLAlchemy Engine instance
-        
-    Raises:
-        DatabaseException: If engine creation fails
-    """
-    try:
-        return create_engine(DB_URL)
-    except Exception as e:
-        logger.error(f"Failed to create database engine: {str(e)}", exc_info=True)
-        raise DatabaseException(f"Database engine creation failed: {str(e)}") from e
 
 def clean_column_names(df):
     """Standardize DataFrame column names to snake_case.
@@ -132,8 +116,7 @@ def run_migration():
             with engine.connect() as conn:
                 conn.execute(text("PRAGMA foreign_keys = OFF;"))
                 
-                tables = ['channel_listings', 'pack_master', 'product_master', 'inventory_master', 
-                          'pricing_rules', 'shipping_rules', 'config']
+                tables = ['channel_listings', 'pack_master', 'product_master', 'inventory_master']
                 
                 for table in tables:
                     try:
@@ -153,12 +136,13 @@ def run_migration():
         
         try:
             # --- 1. CONFIG ---
-            logger.info("Importing CONFIG table...")
+            logger.info("Importing CONFIG to Excel...")
             df = load_sheet(excel_path, "Config")
             if df is not None:
                 df = clean_column_names(df)
-                df.to_sql('config', engine, if_exists='append', index=False)
-                logger.info(f"✅ CONFIG imported: {len(df)} rows")
+                from src.infrastructure.config_rules import save_excel_sheet
+                save_excel_sheet("Config", df)
+                logger.info(f"✅ CONFIG imported to Excel: {len(df)} rows")
             else:
                 logger.warning("CONFIG sheet not found, skipping")
 
@@ -279,22 +263,24 @@ def run_migration():
                 logger.warning("CHANNEL_LISTINGS sheet not found, skipping")
 
             # --- 5. PRICING RULES ---
-            logger.info("Importing PRICING_RULES table...")
+            logger.info("Importing PRICING_RULES to Excel...")
             df = load_sheet(excel_path, "Pricing_Rules")
             if df is not None:
                 df = clean_column_names(df)
-                df.to_sql('pricing_rules', engine, if_exists='append', index=False)
-                logger.info(f"✅ PRICING_RULES imported: {len(df)} rows")
+                from src.infrastructure.config_rules import save_excel_sheet
+                save_excel_sheet("Pricing_Rules", df)
+                logger.info(f"✅ PRICING_RULES imported to Excel: {len(df)} rows")
             else:
                 logger.warning("PRICING_RULES sheet not found, skipping")
 
             # --- 6. SHIPPING RULES ---
-            logger.info("Importing SHIPPING_RULES table...")
+            logger.info("Importing SHIPPING_RULES to Excel...")
             df = load_sheet(excel_path, "Shipping")
             if df is not None:
                 df = clean_column_names(df)
-                df.to_sql('shipping_rules', engine, if_exists='append', index=False)
-                logger.info(f"✅ SHIPPING_RULES imported: {len(df)} rows")
+                from src.infrastructure.config_rules import save_excel_sheet
+                save_excel_sheet("Shipping_Rules", df)
+                logger.info(f"✅ SHIPPING_RULES imported to Excel: {len(df)} rows")
             else:
                 logger.warning("SHIPPING_RULES sheet not found, skipping")
 
@@ -327,8 +313,9 @@ if __name__ == "__main__":
         df = load_sheet(excel_path, "Config")
         if df is not None:
             df = clean_column_names(df)
-            df.to_sql('config', engine, if_exists='append', index=False)
-            print(f"  ✔ Config: {len(df)}")
+            from src.infrastructure.config_rules import save_excel_sheet
+            save_excel_sheet("Config", df)
+            print(f"  ✔ Config (Excel): {len(df)}")
 
         # --- 2. PRODUCT MASTER ---
         df = load_sheet(excel_path, "Product_Master")
@@ -437,14 +424,16 @@ if __name__ == "__main__":
         df = load_sheet(excel_path, "Pricing_Rules")
         if df is not None:
             df = clean_column_names(df)
-            df.to_sql('pricing_rules', engine, if_exists='append', index=False)
-            print(f"  ✔ Pricing Rules: {len(df)}")
+            from src.infrastructure.config_rules import save_excel_sheet
+            save_excel_sheet("Pricing_Rules", df)
+            print(f"  ✔ Pricing Rules (Excel): {len(df)}")
 
         df = load_sheet(excel_path, "Shipping")
         if df is not None:
             df = clean_column_names(df)
-            df.to_sql('shipping_rules', engine, if_exists='append', index=False)
-            print(f"  ✔ Shipping Rules: {len(df)}")
+            from src.infrastructure.config_rules import save_excel_sheet
+            save_excel_sheet("Shipping_Rules", df)
+            print(f"  ✔ Shipping Rules (Excel): {len(df)}")
 
         print("\n✨ Migration Complete!")
         

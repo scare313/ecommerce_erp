@@ -67,26 +67,24 @@ class CatalogService:
 
     def get_category_dropdown(self):
         """
-        Fetches unique categories from Pricing Rules to ensure consistency.
+        Fetches unique categories from Excel Pricing Rules to ensure consistency.
         
         Returns:
             list: Available product categories
-            
-        Raises:
-            DatabaseException: If database query fails
         """
         try:
-            logger.debug("Fetching category options from pricing rules...")
-            with self.engine.connect() as conn:
-                result = conn.execute(text(
-                    "SELECT DISTINCT category_ref FROM pricing_rules WHERE category_ref IS NOT NULL ORDER BY category_ref"
-                ))
-                categories = [row.category_ref for row in result]
-                logger.debug(f"Retrieved {len(categories)} categories")
-                return categories
+            logger.debug("Fetching category options from Excel pricing rules...")
+            from src.infrastructure.config_rules import load_excel_sheet
+            df = load_excel_sheet("Pricing_Rules")
+            if not df.empty and 'category_ref' in df.columns:
+                categories = sorted(df['category_ref'].dropna().unique().tolist())
+            else:
+                categories = ["Apparel", "Accessories", "Footwear", "Home", "Grocery", "Beauty", "Toys", "Electronics", "Other"]
+            logger.debug(f"Retrieved {len(categories)} categories from Excel rules")
+            return categories
         except Exception as e:
-            logger.error(f"Error fetching categories: {str(e)}", exc_info=True)
-            raise DatabaseException(f"Failed to fetch categories: {str(e)}") from e
+            logger.error(f"Error fetching categories from Excel: {str(e)}", exc_info=True)
+            return ["Apparel", "Accessories", "Footwear", "Home", "Grocery", "Beauty", "Toys", "Electronics", "Other"]
 
     def add_product(self, data: dict):
         """

@@ -4,6 +4,8 @@ from src.infrastructure.logger import get_logger, DatabaseException, ServiceExce
 
 logger = get_logger(__name__)
 
+from sqlalchemy import text
+
 class GapService:
     """Service for analyzing gaps between ideal and actual catalog listings."""
     
@@ -42,8 +44,22 @@ class GapService:
 
                 # 2. Get all Active Marketplaces (Columns)
                 logger.debug("Fetching marketplace configuration...")
-                markets = pd.read_sql("SELECT marketplace FROM config", self.engine)
-                if markets.empty:
+                use_sql_config = False
+                try:
+                    with self.engine.connect() as conn:
+                        config_count = conn.execute(text("SELECT COUNT(*) FROM config")).scalar() or 0
+                        if config_count > 0:
+                            use_sql_config = True
+                except Exception:
+                    pass
+
+                if use_sql_config:
+                    markets = pd.read_sql("SELECT marketplace FROM config", self.engine)
+                else:
+                    from src.infrastructure.config_rules import load_excel_sheet
+                    markets = load_excel_sheet("Config")
+
+                if markets.empty or 'marketplace' not in markets.columns:
                     logger.warning("No marketplaces configured, using defaults")
                     return pd.DataFrame()
                 else:

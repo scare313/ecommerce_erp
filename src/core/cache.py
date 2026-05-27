@@ -19,14 +19,30 @@ LONG_TTL = 1800      # 30 min — rarely changing (categories, config)
 
 @st.cache_data(ttl=LONG_TTL, show_spinner=False)
 def get_marketplaces() -> list[str]:
-    """Return active marketplaces from config table. Cached 30 min."""
+    """Return active marketplaces from Excel config or database fallback. Cached 30 min."""
     try:
         engine = get_engine()
-        df = pd.read_sql("SELECT marketplace FROM config ORDER BY marketplace", engine)
-        if df.empty:
+        use_sql_config = False
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                config_count = conn.execute(text("SELECT COUNT(*) FROM config")).scalar() or 0
+                if config_count > 0:
+                    use_sql_config = True
+        except Exception:
+            pass
+
+        if use_sql_config:
+            df = pd.read_sql("SELECT marketplace FROM config ORDER BY marketplace", engine)
+        else:
+            from src.infrastructure.config_rules import load_excel_sheet
+            df = load_excel_sheet("Config")
+            
+        if df.empty or 'marketplace' not in df.columns:
             logger.warning("No marketplaces in config; falling back to defaults")
             return ["Amazon", "Flipkart", "Meesho"]
-        return df['marketplace'].tolist()
+            
+        return sorted(df['marketplace'].dropna().unique().tolist())
     except Exception as e:
         logger.error(f"get_marketplaces failed: {e}", exc_info=True)
         return ["Amazon", "Flipkart", "Meesho"]

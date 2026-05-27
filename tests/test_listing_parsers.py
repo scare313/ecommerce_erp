@@ -644,16 +644,28 @@ class TestParseMeeshoListings:
         df, _ = parse_meesho_listings(_make_meesho_xlsx(rows))
         assert df.iloc[0]["internal_sku"] == "CAP-TRUCKER-PLAIN-GREY"
 
-    def test_product_id_used_as_channel_sku(self):
+    def test_style_id_used_as_channel_sku(self):
         rows = [{
-            "SERIAL NO": 1, "CATALOG NAME": "X", "CATALOG ID": 1,
+            "SERIAL NO": 1, "CATALOG NAME": "X", "CATALOG ID": 486353323,
             "PRODUCT NAME": "Test", "PRODUCT ID": 939302749,
             "STYLE ID": "CAP-A",
             "VARIATION ID": 1, "VARIATION": "Free Size",
             "STOCK": "ALL", "SYSTEM STOCK COUNT": 100, "YOUR STOCK COUNT": "",
         }]
         df, _ = parse_meesho_listings(_make_meesho_xlsx(rows))
-        assert df.iloc[0]["channel_sku"] == "939302749"
+        assert df.iloc[0]["channel_sku"] == "CAP-A"
+
+    def test_catalog_id_used_as_channel_id(self):
+        rows = [{
+            "SERIAL NO": 1, "CATALOG NAME": "X", "CATALOG ID": 486353323,
+            "PRODUCT NAME": "Test", "PRODUCT ID": 939302749,
+            "STYLE ID": "CAP-A",
+            "VARIATION ID": 1, "VARIATION": "Free Size",
+            "STOCK": "ALL", "SYSTEM STOCK COUNT": 100, "YOUR STOCK COUNT": "",
+        }]
+        df, _ = parse_meesho_listings(_make_meesho_xlsx(rows))
+        assert df.iloc[0]["channel_id"] == "486353323"
+
 
     def test_price_dims_hsn_all_null(self):
         # Meesho file has no price/dims/HSN — all must be NULL [2]
@@ -830,7 +842,7 @@ class TestParseAmazonListings:
         df, _ = parse_amazon_listings(_make_amazon_xlsx(rows))
         assert df.iloc[0]["internal_sku"] == "CAP-TRUCKER-PLAIN-GREY"
 
-    def test_product_id_used_as_channel_sku(self):
+    def test_sku_used_as_channel_sku(self):
         rows = [{
             "Status": "Active", "Title": "X", "SKU": "SKU1",
             "Product Type": "HAT", "Listing Action": "",
@@ -845,9 +857,10 @@ class TestParseAmazonListings:
             "Country of Origin": "IN",
         }]
         df, _ = parse_amazon_listings(_make_amazon_xlsx(rows))
-        assert df.iloc[0]["channel_sku"] == "B07ABCDEFG"
+        assert df.iloc[0]["channel_sku"] == "SKU1"
+        assert df.iloc[0]["channel_id"] == "B07ABCDEFG"
 
-    def test_missing_product_id_creates_synthetic_channel_sku(self):
+    def test_missing_product_id_handles_gracefully(self):
         # Amazon allows new listings without an ASIN — parser must handle gracefully
         rows = [{
             "Status": "Active", "Title": "X", "SKU": "NEW-SKU-001",
@@ -865,8 +878,8 @@ class TestParseAmazonListings:
         df, err = parse_amazon_listings(_make_amazon_xlsx(rows))
         assert err is None
         assert len(df) == 1
-        # Synthetic channel_sku should include the SKU
-        assert "NEW-SKU-001" in df.iloc[0]["channel_sku"]
+        assert df.iloc[0]["channel_sku"] == "NEW-SKU-001"
+        assert df.iloc[0]["channel_id"] == ""
 
     def test_dimensions_in_cm_no_conversion(self):
         rows = [{

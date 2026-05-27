@@ -884,6 +884,7 @@ class TestNetProfitAndMargin:
                 row["selling_price"]
                 - row["total_cogs"]
                 - row["total_platform_fees"]
+                - row.get("tcs_tds", 0.0)
             )
             assert_close(row["net_profit"], expected, tol=0.5)
 

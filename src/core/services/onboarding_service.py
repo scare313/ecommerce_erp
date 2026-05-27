@@ -62,9 +62,69 @@ class OnboardingService:
             logger.error(f"Failed to initialize OnboardingService: {str(e)}", exc_info=True)
             raise
 
+    def detect_similarity_groups(self, staging_df):
+        """
+        Compare unique internal_skus in staging_df and cluster similar ones.
+
+        Returns:
+            list[dict]: list of clusters:
+                [{'shortest': str, 'all_skus': list[str], 'marketplaces': list[str]}]
+        """
+        try:
+            logger.info("Detecting highly similar SKU strings for merging...")
+            if staging_df is None or staging_df.empty:
+                return []
+
+            skus = sorted(staging_df['internal_sku'].dropna().unique().tolist())
+
+            # Helper similarity function
+            def are_similar(s1, s2):
+                s1, s2 = s1.upper(), s2.upper()
+                if s1 == s2:
+                    return True
+                # Prefix/suffix with small length difference
+                if (s1 in s2 or s2 in s1) and abs(len(s1) - len(s2)) <= 3:
+                    return True
+                # SequenceMatcher ratio
+                import difflib
+                ratio = difflib.SequenceMatcher(None, s1, s2).ratio()
+                return ratio >= 0.88
+
+            # Cluster similar SKUs
+            clusters = []
+            visited = set()
+            for sku in skus:
+                if sku in visited:
+                    continue
+                cluster_skus = [sku]
+                visited.add(sku)
+                for other in skus:
+                    if other in visited:
+                        continue
+                    if are_similar(sku, other):
+                        cluster_skus.append(other)
+                        visited.add(other)
+
+                # If we found any similar SKUs, build the group
+                if len(cluster_skus) > 1:
+                    shortest = min(cluster_skus, key=len)
+                    mkt_list = sorted(staging_df[staging_df['internal_sku'].isin(cluster_skus)]['marketplace'].unique().tolist())
+                    clusters.append({
+                        'shortest': shortest,
+                        'all_skus': sorted(cluster_skus),
+                        'marketplaces': mkt_list
+                    })
+
+            logger.info(f"✅ Similarity detection complete: found {len(clusters)} clusters")
+            return clusters
+        except Exception as e:
+            logger.error(f"Error in detect_similarity_groups: {e}", exc_info=True)
+            return []
+
     # =========================================================================
     # STEP 1+2: PARSE & STAGE
     # =========================================================================
+
 
     def parse_and_stage(self, files_dict):
         """
@@ -530,15 +590,16 @@ class OnboardingService:
                         ) VALUES (
                             :channel_sku, :marketplace, :internal_sku,
                             :listing_status, :selling_price,
-                            '', '', :last_updated, ''
+                            :channel_id, '', :last_updated, ''
                         )
                         ON CONFLICT(channel_sku, marketplace) DO UPDATE SET
                             -- Always update price (price drift is real)
                             selling_price = excluded.selling_price,
                             listing_status = excluded.listing_status,
                             internal_sku = excluded.internal_sku,
+                            channel_id = excluded.channel_id,
                             last_updated = excluded.last_updated
-                            -- channel_id, listing_url, comment NEVER touched
+                            -- listing_url, comment NEVER touched
                             -- (preserves user-entered notes/URLs)
                     """), {
                         'channel_sku': row['channel_sku'],
@@ -546,8 +607,10 @@ class OnboardingService:
                         'internal_sku': row['internal_sku'],
                         'listing_status': listing_status,
                         'selling_price': selling_price,
+                        'channel_id': row.get('channel_id') or '',
                         'last_updated': now_str,
                     })
+
                     listings_upserted += 1
 
                 logger.info(f"  ✔ channel_listings: {listings_upserted} rows upserted")

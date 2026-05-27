@@ -9,3 +9,4 @@ matplotlib
 pytest
 pytest-cov
 pytest-mock
+xlrd>=2.0.1

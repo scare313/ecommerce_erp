@@ -9,18 +9,16 @@ Provides interfaces for managing the product catalog including:
 """
 import streamlit as st
 import pandas as pd
+from sqlalchemy import text
 from src.core.services.catalog_service import CatalogService
 from src.core.services.bulk_service import BulkService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
 from src.core.cache import clear_catalog_cache
 from src.core.cache import get_marketplaces
-from sqlalchemy import text
-from src.infrastructure.database import get_engine
-from src.infrastructure.logger import get_logger
-from src.core.services.catalog_service import CatalogService
 
 logger = get_logger(__name__)
+
 
 def render():
     """Render the Data Manager UI page."""
@@ -232,24 +230,23 @@ def render():
             
             rule_choice = st.radio("Edit:", ["Pricing Rules", "Shipping Rules", "General Config"], horizontal=True)
             
-            table_map = {
-                "Pricing Rules": "pricing_rules",
-                "Shipping Rules": "shipping_rules",
-                "General Config": "config"
+            sheet_map = {
+                "Pricing Rules": "Pricing_Rules",
+                "Shipping Rules": "Shipping_Rules",
+                "General Config": "Config"
             }
             
-            selected_table = table_map[rule_choice]
+            selected_sheet = sheet_map[rule_choice]
             
             try:
-                df_rules = pd.read_sql(f"SELECT * FROM {selected_table}", engine)
-                edited_rules = st.data_editor(df_rules, num_rows="dynamic", key=f"editor_{selected_table}")
+                from src.infrastructure.config_rules import load_excel_sheet, save_excel_sheet
+                df_rules = load_excel_sheet(selected_sheet)
+                edited_rules = st.data_editor(df_rules, num_rows="dynamic", key=f"editor_{selected_sheet}")
                 
                 if st.button(f"Save {rule_choice}"):
                     try:
-                        with engine.connect() as conn:
-                            edited_rules.to_sql(selected_table, conn, if_exists='replace', index=False)
-                            conn.commit()
-                        logger.info(f"Configuration saved for {selected_table}: {len(edited_rules)} rows")
+                        save_excel_sheet(selected_sheet, edited_rules)
+                        logger.info(f"Configuration saved for {selected_sheet}: {len(edited_rules)} rows")
                         st.success(f"Updated {rule_choice}")
                     except Exception as e:
                         logger.error(f"Error saving {rule_choice}: {str(e)}", exc_info=True)
@@ -267,10 +264,8 @@ def render():
 
             # Show existing marketplaces
             try:
-                existing_df = pd.read_sql(
-                    "SELECT marketplace, default_zone, volumetric_divisor, gst_on_fees FROM config ORDER BY marketplace",
-                    engine
-                )
+                from src.infrastructure.config_rules import load_excel_sheet
+                existing_df = load_excel_sheet("Config")
                 
                 if not existing_df.empty:
                     st.markdown("**Configured Marketplaces:**")
@@ -280,7 +275,7 @@ def render():
                             'default_zone': 'Default Zone',
                             'volumetric_divisor': 'Vol. Divisor',
                             'gst_on_fees': 'GST on Fees (%)'
-                        }),
+                        }).sort_values('Marketplace'),
                         width='stretch',
                         hide_index=True
                     )
@@ -345,17 +340,21 @@ def render():
                             # ----- Insert -----
                             try:
                                 logger.info(f"Adding new marketplace: {new_mkt_clean}")
-                                with engine.connect() as conn:
-                                    conn.execute(text("""
-                                        INSERT INTO config (marketplace, default_zone, volumetric_divisor, gst_on_fees)
-                                        VALUES (:mkt, :zone, :vd, :gst)
-                                    """), {
-                                        "mkt": new_mkt_clean,
-                                        "zone": zone,
-                                        "vd": int(vol_div),
-                                        "gst": float(gst_fees)
-                                    })
-                                    conn.commit()
+                                from src.infrastructure.config_rules import load_excel_sheet, save_excel_sheet
+                                config_df = load_excel_sheet("Config")
+                                
+                                new_row = pd.DataFrame([{
+                                    "marketplace": new_mkt_clean,
+                                    "default_zone": zone.lower(),
+                                    "volumetric_divisor": int(vol_div),
+                                    "gst_on_fees": float(gst_fees) / 100.0 if gst_fees > 1.0 else float(gst_fees)
+                                }])
+                                
+                                # Make sure to remove duplicate with same name first
+                                config_df = config_df[config_df['marketplace'].str.lower() != new_mkt_clean.lower()]
+                                config_df = pd.concat([config_df, new_row], ignore_index=True)
+                                
+                                save_excel_sheet("Config", config_df)
                                 
                                 logger.info(f"✅ Marketplace '{new_mkt_clean}' added successfully")
                                 st.success(
@@ -371,7 +370,6 @@ def render():
                                     from src.infrastructure.cache import invalidate_all_caches
                                     invalidate_all_caches()
                                 except ImportError:
-                                    # Cache module might not be set up yet — fall back to clearing st.cache_data
                                     st.cache_data.clear()
                                 
                                 st.rerun()
@@ -401,16 +399,12 @@ def render():
                                     text("SELECT COUNT(*) FROM channel_listings WHERE marketplace = :m"),
                                     {"m": mkt_to_remove}
                                 ).scalar() or 0
-                                
-                                pricing_count = conn.execute(
-                                    text("SELECT COUNT(*) FROM pricing_rules WHERE marketplace = :m"),
-                                    {"m": mkt_to_remove}
-                                ).scalar() or 0
-                                
-                                shipping_count = conn.execute(
-                                    text("SELECT COUNT(*) FROM shipping_rules WHERE marketplace = :m"),
-                                    {"m": mkt_to_remove}
-                                ).scalar() or 0
+                            
+                            pricing_df = load_excel_sheet("Pricing_Rules")
+                            pricing_count = len(pricing_df[pricing_df['marketplace'] == mkt_to_remove])
+                            
+                            shipping_df = load_excel_sheet("Shipping_Rules")
+                            shipping_count = len(shipping_df[shipping_df['marketplace'] == mkt_to_remove])
                             
                             if listing_count or pricing_count or shipping_count:
                                 st.warning(
@@ -441,32 +435,32 @@ def render():
                             else:
                                 try:
                                     logger.info(f"Removing marketplace: {mkt_to_remove} (cascade={cascade})")
-                                    with engine.connect() as conn:
-                                        if cascade:
+                                    from src.infrastructure.config_rules import load_excel_sheet, save_excel_sheet
+                                    
+                                    config_df = load_excel_sheet("Config")
+                                    config_df = config_df[config_df['marketplace'] != mkt_to_remove]
+                                    save_excel_sheet("Config", config_df)
+                                    
+                                    if cascade:
+                                        pricing_df = load_excel_sheet("Pricing_Rules")
+                                        pricing_df = pricing_df[pricing_df['marketplace'] != mkt_to_remove]
+                                        save_excel_sheet("Pricing_Rules", pricing_df)
+                                        
+                                        shipping_df = load_excel_sheet("Shipping_Rules")
+                                        shipping_df = shipping_df[shipping_df['marketplace'] != mkt_to_remove]
+                                        save_excel_sheet("Shipping_Rules", shipping_df)
+                                        
+                                        with engine.connect() as conn:
                                             conn.execute(
                                                 text("DELETE FROM channel_listings WHERE marketplace = :m"),
                                                 {"m": mkt_to_remove}
                                             )
-                                            conn.execute(
-                                                text("DELETE FROM pricing_rules WHERE marketplace = :m"),
-                                                {"m": mkt_to_remove}
-                                            )
-                                            conn.execute(
-                                                text("DELETE FROM shipping_rules WHERE marketplace = :m"),
-                                                {"m": mkt_to_remove}
-                                            )
-                                            logger.info(f"Cascade-deleted related rows for {mkt_to_remove}")
-                                        
-                                        conn.execute(
-                                            text("DELETE FROM config WHERE marketplace = :m"),
-                                            {"m": mkt_to_remove}
-                                        )
-                                        conn.commit()
+                                            conn.commit()
+                                        logger.info(f"Cascade-deleted related rows for {mkt_to_remove}")
                                     
                                     logger.info(f"✅ Marketplace '{mkt_to_remove}' removed")
                                     st.success(f"✅ Marketplace **{mkt_to_remove}** removed successfully.")
                                     
-                                    # Invalidate caches
                                     try:
                                         from src.infrastructure.cache import invalidate_all_caches
                                         invalidate_all_caches()

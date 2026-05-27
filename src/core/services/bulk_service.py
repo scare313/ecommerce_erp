@@ -56,19 +56,20 @@ class BulkService:
                 
                 # 4. Pricing Rules
                 logger.debug("Exporting pricing rules...")
-                df_price = pd.read_sql("SELECT * FROM pricing_rules", self.engine)
+                from src.infrastructure.config_rules import load_excel_sheet
+                df_price = load_excel_sheet("Pricing_Rules")
                 df_price.to_excel(writer, sheet_name='Pricing_Rules', index=False)
                 logger.info(f"Exported {len(df_price)} pricing rules")
                 
                 # 5. Shipping Rules
                 logger.debug("Exporting shipping rules...")
-                df_ship = pd.read_sql("SELECT * FROM shipping_rules", self.engine)
+                df_ship = load_excel_sheet("Shipping_Rules")
                 df_ship.to_excel(writer, sheet_name='Shipping_Rules', index=False)
                 logger.info(f"Exported {len(df_ship)} shipping rules")
                 
                 # 6. Config
                 logger.debug("Exporting config...")
-                df_conf = pd.read_sql("SELECT * FROM config", self.engine)
+                df_conf = load_excel_sheet("Config")
                 df_conf.to_excel(writer, sheet_name='Config', index=False)
                 logger.info(f"Exported {len(df_conf)} config entries")
 
@@ -138,6 +139,25 @@ class BulkService:
                         logs.append(msg)
                         return
                     
+                    if table_name in ["config", "pricing_rules", "shipping_rules"]:
+                        try:
+                            from src.infrastructure.config_rules import save_excel_sheet
+                            sheet_map = {
+                                "config": "Config",
+                                "pricing_rules": "Pricing_Rules",
+                                "shipping_rules": "Shipping_Rules"
+                            }
+                            save_excel_sheet(sheet_map[table_name], df)
+                            msg = f"✅ Updated Excel sheet {sheet_map[table_name]}: {len(df)} rows."
+                            logger.info(msg)
+                            logs.append(msg)
+                            return
+                        except Exception as e:
+                            msg = f"❌ Error updating Excel sheet for {table_name}: {str(e)}"
+                            logger.error(msg, exc_info=True)
+                            logs.append(msg)
+                            return
+
                     try:
                         with self.engine.connect() as conn:
                             # SAFE APPROACH: Clear then insert

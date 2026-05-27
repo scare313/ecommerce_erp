@@ -3,8 +3,10 @@
 Handles database creation, schema deployment, and data migration on application startup.
 """
 import os
-from sqlalchemy import create_engine, text, event
+from sqlalchemy import text
+from src.infrastructure.database import get_engine, DB_PATH
 from src.infrastructure.migration_script import run_migration
+from src.infrastructure.config_rules import seed_default_excel_rules
 from src.infrastructure.logger import (
     get_logger, DatabaseException, ConfigException, DataValidationException
 )
@@ -12,20 +14,7 @@ from src.infrastructure.logger import (
 logger = get_logger(__name__)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-
-DB_PATH = os.path.join(PROJECT_ROOT, "data", "db", "ecommerce.db")
 SCHEMA_PATH = os.path.join(SCRIPT_DIR, "schema.sql")
-
-# Ensure DB directory exists
-try:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    logger.debug(f"Database directory ready: {os.path.dirname(DB_PATH)}")
-except Exception as e:
-    logger.error(f"Failed to create database directory: {str(e)}", exc_info=True)
-    raise ConfigException(f"Cannot create database directory: {str(e)}") from e
-
-DB_URL = f"sqlite:///{DB_PATH}"
 
 
 def init_database():
@@ -37,6 +26,9 @@ def init_database():
         bool: True if initialization successful, False otherwise
     """
     try:
+        # Guarantee Excel rules exist
+        seed_default_excel_rules()
+
         logger.info(f"Starting database initialization. DB Path: {DB_PATH}")
         
         # Check if database file exists
@@ -66,9 +58,10 @@ def _check_and_migrate_existing_db():
     """
     try:
         logger.debug("Checking existing database integrity...")
-        engine = create_engine(DB_URL)
+        engine = get_engine()
         
         with engine.connect() as conn:
+            # Check core transactional tables
             result = conn.execute(text("SELECT COUNT(*) FROM product_master"))
             product_count = result.scalar()
         
@@ -141,7 +134,7 @@ def _create_new_database():
         logger.info(f"Reading schema from: {SCHEMA_PATH}")
         
         # Create engine and read schema
-        engine = create_engine(DB_URL)
+        engine = get_engine()
         
         with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
             sql_script = f.read()
@@ -160,12 +153,10 @@ def _create_new_database():
                         executed_successfully += 1
                     except Exception as e:
                         logger.warning(f"Error executing schema statement {idx + 1}: {str(e)}")
-                        # Continue with next statement instead of failing completely
             
             conn.commit()
             logger.info(f"✅ Database schema created successfully. Executed {executed_successfully} statements.")
         
-        # Load initial data via migration
         # Load initial data via migration (OPTIONAL — wizard can bootstrap instead)
         logger.info("Attempting to load initial data from Master Catalog...")
         try:
@@ -173,7 +164,6 @@ def _create_new_database():
             logger.info("✅ Initial data migration completed successfully.")
             return True
         except DataValidationException as e:
-            # Specific case: no Excel file found → that's OK, wizard will handle it
             err_msg = str(e).lower()
             if "no excel" in err_msg or "not found" in err_msg:
                 logger.warning(
@@ -182,12 +172,9 @@ def _create_new_database():
                     "bootstrap your catalog from marketplace files."
                 )
                 return True  # Schema exists; wizard will populate it
-            # Other validation errors are still fatal
             logger.error(f"Migration validation failed: {str(e)}", exc_info=True)
             return False
         except Exception as e:
-            # Unexpected migration error — schema is created, but log loudly.
-            # Still return True so the user can reach the Onboarding Wizard.
             logger.error(f"Initial data migration failed: {str(e)}", exc_info=True)
             logger.warning(
                 "Database schema created but migration encountered an error. "

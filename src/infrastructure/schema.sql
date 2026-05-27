@@ -4,9 +4,6 @@ PRAGMA foreign_keys = OFF;
 DROP TABLE IF EXISTS channel_listings;
 DROP TABLE IF EXISTS pack_master;
 DROP TABLE IF EXISTS product_master;
-DROP TABLE IF EXISTS pricing_rules;
-DROP TABLE IF EXISTS shipping_rules;
-DROP TABLE IF EXISTS config;
 
 PRAGMA foreign_keys = ON;
 
@@ -65,33 +62,6 @@ CREATE TABLE channel_listings (
     comment TEXT,
     
     PRIMARY KEY (channel_sku, marketplace)
-);
-
--- 4. PRICING RULES
-CREATE TABLE pricing_rules (
-    marketplace VARCHAR(50),
-    category_ref VARCHAR(100),
-    min_price DECIMAL(10,2),
-    max_price DECIMAL(10,2),
-    referral_fee_pct DECIMAL(5,4),
-    closing_fee_inr DECIMAL(10,2)
-);
-
--- 5. SHIPPING RULES
-CREATE TABLE shipping_rules (
-    marketplace VARCHAR(50),
-    weight_slab_max_kg DECIMAL(5,3),
-    local_fee DECIMAL(10,2),
-    regional_fee DECIMAL(10,2),
-    national_fee DECIMAL(10,2)
-);
-
--- 6. CONFIG
-CREATE TABLE config (
-    marketplace VARCHAR(50) PRIMARY KEY,
-    default_zone VARCHAR(50),
-    volumetric_divisor INT,
-    gst_on_fees DECIMAL(5,2)
 );
 
 -- Track current balances at the Product level

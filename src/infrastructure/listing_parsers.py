@@ -39,10 +39,11 @@ logger = get_logger(__name__)
 
 # Unified column schema returned by all parsers
 UNIFIED_COLUMNS = [
-    "internal_sku", "marketplace", "channel_sku", "name", "brand", "category",
+    "internal_sku", "marketplace", "channel_sku", "channel_id", "name", "brand", "category",
     "mrp", "selling_price", "hsn", "gst_rate", "listing_status",
     "length_cm", "width_cm", "height_cm", "weight_kg",
 ]
+
 
 # Flipkart Tax Code -> GST percentage
 # Per Flipkart listing file convention (e.g., "GST_5" means 5%)
@@ -135,6 +136,33 @@ def _safe_str(value):
         return s if s else None
     except Exception:
         return None
+
+
+def normalize_parsed_category(category_name):
+    """
+    Standardize raw listing categories into standard catalog categories:
+    'Apparel', 'Accessories', 'Footwear', 'Home', 'Grocery', 'Beauty', 'Toys', 'Electronics', 'Other'
+    """
+    if not category_name or not isinstance(category_name, str):
+        return "Other"
+    
+    cat_lower = category_name.lower().strip()
+    
+    # 1. Accessories keywords
+    if any(kw in cat_lower for kw in ["cap", "beanie", "hat", "accessory", "accessories"]):
+        return "Accessories"
+        
+    # 2. Apparel keywords
+    if any(kw in cat_lower for kw in ["shirt", "clothing", "apparel", "tshirt", "t-shirt", "top", "pant", "jeans"]):
+        return "Apparel"
+        
+    # 3. Direct match
+    standard_categories = ["Apparel", "Accessories", "Footwear", "Home", "Grocery", "Beauty", "Toys", "Electronics", "Other"]
+    for std_cat in standard_categories:
+        if std_cat.lower() == cat_lower:
+            return std_cat
+            
+    return "Other"
 
 
 def _convert_length(value, unit):
@@ -300,9 +328,15 @@ def parse_flipkart_listings(file_buffer):
                 skipped += 1
                 continue
 
-            channel_sku = _safe_str(src_row.get(listing_id_col)) if listing_id_col else None
+            # channel_sku is the Seller SKU Id from the Flipkart file
+            channel_sku = _safe_str(src_row.get(sku_col))
             if not channel_sku:
-                # Listing ID is critical for channel_listings PK; skip if missing
+                skipped += 1
+                continue
+
+            # channel_id is the Listing ID from the Flipkart file
+            channel_id = (_safe_str(src_row.get(listing_id_col)) if listing_id_col else "") or ""
+            if not channel_id:
                 logger.warning(f"Flipkart row missing Listing ID for SKU {internal_sku}; skipping")
                 skipped += 1
                 continue
@@ -311,9 +345,10 @@ def parse_flipkart_listings(file_buffer):
                 "internal_sku": internal_sku,
                 "marketplace": "Flipkart",
                 "channel_sku": channel_sku,
+                "channel_id": channel_id,
                 "name": _safe_str(src_row.get(title_col)) if title_col else None,
                 "brand": None,  # Flipkart file doesn't expose brand cleanly
-                "category": _safe_str(src_row.get(sub_cat_col)) if sub_cat_col else None,
+                "category": _safe_str(src_row.get(sub_cat_col)) if sub_cat_col else "Other",
                 "mrp": _safe_float(src_row.get(mrp_col)) if mrp_col else None,
                 "selling_price": _safe_float(src_row.get(price_col)) if price_col else None,
                 "hsn": _safe_str(src_row.get(hsn_col)) if hsn_col else None,
@@ -325,6 +360,8 @@ def parse_flipkart_listings(file_buffer):
                 "height_cm": _safe_float(src_row.get(pkg_h_col)) if pkg_h_col else None,
                 "weight_kg": _safe_float(src_row.get(pkg_w_col)) if pkg_w_col else None,
             })
+
+
 
         if not rows:
             return None, "Flipkart file produced no valid rows"
@@ -408,6 +445,7 @@ def parse_meesho_listings(file_buffer):
         product_id_col = _find_col(df.columns, "PRODUCT ID", "Product ID")
         product_name_col = _find_col(df.columns, "PRODUCT NAME", "Product Name")
         catalog_name_col = _find_col(df.columns, "CATALOG NAME", "Catalog Name")
+        catalog_id_col = _find_col(df.columns, "CATALOG ID", "Catalog Id")
 
         if not product_id_col:
             return None, "Meesho file missing 'PRODUCT ID' column"
@@ -420,19 +458,25 @@ def parse_meesho_listings(file_buffer):
                 skipped += 1
                 continue
 
-            channel_sku = _safe_str(src_row.get(product_id_col))
+            # channel_sku is the Style ID from the Meesho file
+            channel_sku = _safe_str(src_row.get(style_col))
             if not channel_sku:
-                logger.warning(f"Meesho row missing Product ID for SKU {internal_sku}; skipping")
+                logger.warning(f"Meesho row missing Style ID for SKU {internal_sku}; skipping")
                 skipped += 1
                 continue
+
+            # channel_id is the Catalog ID from the Meesho file
+            channel_id = (_safe_str(src_row.get(catalog_id_col)) if catalog_id_col else "") or ""
+
 
             rows.append({
                 "internal_sku": internal_sku,
                 "marketplace": "Meesho",
                 "channel_sku": channel_sku,
+                "channel_id": channel_id,
                 "name": _safe_str(src_row.get(product_name_col)) if product_name_col else None,
                 "brand": _safe_str(src_row.get(catalog_name_col)) if catalog_name_col else None,
-                "category": None,  # Meesho file has no clean category field
+                "category": "Other",  # Meesho file has no clean category field
                 "mrp": None,
                 "selling_price": None,  # Meesho inventory file has no price
                 "hsn": None,
@@ -443,6 +487,7 @@ def parse_meesho_listings(file_buffer):
                 "height_cm": None,
                 "weight_kg": None,
             })
+
 
         if not rows:
             return None, "Meesho file produced no valid rows"
@@ -578,17 +623,23 @@ def parse_amazon_listings(file_buffer):
                 skipped += 1
                 continue
 
-            # Channel SKU = ASIN (Product Id). If missing, fall back to SKU
-            # since Amazon allows new listings without an existing ASIN.
-            channel_sku = _safe_str(src_row.get(product_id_col)) if product_id_col else None
+            # Check parentage to ignore parent SKUs
+            parentage_col = _find_col(df.columns, "Parentage Level", "Parentage")
+            if parentage_col:
+                parentage_val = _safe_str(src_row.get(parentage_col))
+                if parentage_val and parentage_val.lower() == "parent":
+                    skipped += 1
+                    continue
+
+            # channel_sku is the SKU column from the Amazon file
+            channel_sku = _safe_str(src_row.get(sku_col))
             if not channel_sku:
-                # For new listings, ASIN may not yet be assigned. Use SKU
-                # prefixed with marketplace as a synthetic channel_sku.
-                channel_sku = f"AMZ-{internal_sku}"
-                logger.debug(
-                    f"Amazon row missing Product Id for SKU {internal_sku}; "
-                    f"using synthetic channel_sku '{channel_sku}'"
-                )
+                skipped += 1
+                continue
+
+            # channel_id is the Product Id (ASIN) from the Amazon file
+            channel_id = (_safe_str(src_row.get(product_id_col)) if product_id_col else "") or ""
+
 
             # Convert dimensions to cm and weight to kg
             length_cm = (
@@ -616,9 +667,10 @@ def parse_amazon_listings(file_buffer):
                 "internal_sku": internal_sku,
                 "marketplace": "Amazon",
                 "channel_sku": channel_sku,
+                "channel_id": channel_id,
                 "name": _safe_str(src_row.get(item_name_col)) if item_name_col else None,
                 "brand": _safe_str(src_row.get(brand_col)) if brand_col else None,
-                "category": _safe_str(src_row.get(item_type_col)) if item_type_col else None,
+                "category": _safe_str(src_row.get(item_type_col)) if item_type_col else "Other",
                 "mrp": None,  # No reliable MRP field in standard Amazon template
                 "selling_price": _safe_float(src_row.get(price_col)) if price_col else None,
                 "hsn": None,  # Not standard in Amazon template
@@ -629,6 +681,7 @@ def parse_amazon_listings(file_buffer):
                 "height_cm": height_cm,
                 "weight_kg": weight_kg,
             })
+
 
         if not rows:
             return None, "Amazon file produced no valid rows"

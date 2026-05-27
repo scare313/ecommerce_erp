@@ -30,6 +30,9 @@ logger = get_logger(__name__)
 # =============================================================================
 
 SS_STEP = "onboarding_step"
+SS_RAW_STAGING_DF = "onboarding_raw_staging_df"
+SS_SIMILARITY_GROUPS = "onboarding_similarity_groups"
+SS_SKU_MERGES = "onboarding_sku_merges"
 SS_STAGING_DF = "onboarding_staging_df"
 SS_GROUPED_DF = "onboarding_grouped_df"
 SS_CONFLICTS = "onboarding_conflicts"
@@ -37,12 +40,16 @@ SS_RESOLUTIONS = "onboarding_resolutions"
 SS_DIFF = "onboarding_diff"
 SS_PARSE_ERRORS = "onboarding_parse_errors"
 SS_COMMIT_SUMMARY = "onboarding_commit_summary"
+SS_CAT_MAPPINGS = "onboarding_category_mappings"
 
 
 def _init_state():
     """Initialize session state defaults for the wizard."""
     defaults = {
         SS_STEP: 1,
+        SS_RAW_STAGING_DF: None,
+        SS_SIMILARITY_GROUPS: [],
+        SS_SKU_MERGES: {},
         SS_STAGING_DF: None,
         SS_GROUPED_DF: None,
         SS_CONFLICTS: [],
@@ -50,6 +57,7 @@ def _init_state():
         SS_DIFF: None,
         SS_PARSE_ERRORS: [],
         SS_COMMIT_SUMMARY: None,
+        SS_CAT_MAPPINGS: {},
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -58,8 +66,9 @@ def _init_state():
 
 def _reset_state():
     """Reset all wizard state — used on 'Start Over' button."""
-    for k in [SS_STEP, SS_STAGING_DF, SS_GROUPED_DF, SS_CONFLICTS,
-              SS_RESOLUTIONS, SS_DIFF, SS_PARSE_ERRORS, SS_COMMIT_SUMMARY]:
+    for k in [SS_STEP, SS_RAW_STAGING_DF, SS_SIMILARITY_GROUPS, SS_SKU_MERGES,
+              SS_STAGING_DF, SS_GROUPED_DF, SS_CONFLICTS,
+              SS_RESOLUTIONS, SS_DIFF, SS_PARSE_ERRORS, SS_COMMIT_SUMMARY, SS_CAT_MAPPINGS]:
         if k in st.session_state:
             del st.session_state[k]
     _init_state()
@@ -118,11 +127,15 @@ def render():
         elif step == 2:
             _render_step_2_preview()
         elif step == 3:
-            _render_step_3_conflicts()
+            _render_step_3_category_mapping()
         elif step == 4:
-            _render_step_4_diff()
+            _render_step_4_merging()
         elif step == 5:
-            _render_step_5_success()
+            _render_step_5_conflicts()
+        elif step == 6:
+            _render_step_6_diff()
+        elif step == 7:
+            _render_step_7_success()
         else:
             st.error(f"Unknown step: {step}")
 
@@ -150,9 +163,11 @@ def _render_progress_bar():
     steps = [
         (1, "📤 Upload"),
         (2, "🔍 Preview"),
-        (3, "⚖️ Conflicts"),
-        (4, "📊 Diff Report"),
-        (5, "✅ Done"),
+        (3, "📂 Category Mapping"),
+        (4, "🔗 SKU Merging"),
+        (5, "⚖️ Conflicts"),
+        (6, "📊 Diff Report"),
+        (7, "✅ Done"),
     ]
     cols = st.columns(len(steps))
     for i, (num, label) in enumerate(steps):
@@ -244,17 +259,19 @@ def _render_step_1_upload():
                             st.error(f"• {err}")
                     return
 
-                # Auto-group
+                # Auto-group (draft, before similarity merges)
                 grouped_df, conflicts = service.auto_group(staging_df)
 
-                # Compute diff (always — needed for both first-run and re-run)
-                diff = service.compute_diff(staging_df, grouped_df)
+                # Detect similarity groups
+                similarity_groups = service.detect_similarity_groups(staging_df)
 
                 # Stash in session state
+                st.session_state[SS_RAW_STAGING_DF] = staging_df.copy()
+                st.session_state[SS_SIMILARITY_GROUPS] = similarity_groups
+                st.session_state[SS_SKU_MERGES] = {i: True for i in range(len(similarity_groups))}
                 st.session_state[SS_STAGING_DF] = staging_df
                 st.session_state[SS_GROUPED_DF] = grouped_df
                 st.session_state[SS_CONFLICTS] = conflicts
-                st.session_state[SS_DIFF] = diff
                 st.session_state[SS_PARSE_ERRORS] = parse_errors
 
                 # Pre-seed resolutions with defaults (longest name)
@@ -267,7 +284,8 @@ def _render_step_1_upload():
                 st.session_state[SS_STEP] = 2
                 logger.info(
                     f"✅ Parse complete: {len(staging_df)} listings, "
-                    f"{len(grouped_df)} unique SKUs, {len(conflicts)} conflicts"
+                    f"{len(grouped_df)} unique SKUs, {len(conflicts)} conflicts, "
+                    f"{len(similarity_groups)} similarity groups detected"
                 )
                 st.rerun()
 
@@ -362,11 +380,9 @@ def _render_step_2_preview():
             st.session_state[SS_STEP] = 1
             st.rerun()
     with col_next:
-        next_label = "⚖️ Resolve Conflicts" if conflicts else "📊 View Diff Report ➡️"
-        if st.button(next_label, type="primary", key="onb_step2_next"):
-            # Skip conflict step if no conflicts
-            st.session_state[SS_STEP] = 3 if conflicts else 4
-            logger.info(f"Advancing to step {st.session_state[SS_STEP]}")
+        if st.button("📂 Category Mapping ➡️", type="primary", key="onb_step2_next"):
+            st.session_state[SS_STEP] = 3
+            logger.info("Advancing to step 3 (Category Mapping)")
             st.rerun()
 
 
@@ -374,15 +390,297 @@ def _render_step_2_preview():
 # STEP 3: CONFLICT RESOLUTION
 # =============================================================================
 
-def _render_step_3_conflicts():
-    """Step 3 — Resolve name/HSN conflicts via radio selection."""
-    st.header("Step 3 — Resolve Conflicts")
+# =============================================================================
+# STEP 3: SKU SIMILARITY MERGING (NEW)
+# =============================================================================
+
+def _render_step_4_merging():
+    """Step 4 — SKU Similarity Merging."""
+    st.header("Step 4 — SKU Similarity Merging")
+    st.markdown(
+        "We compared SKU strings across platforms and identified potential duplicates. "
+        "Choose which groups of similar SKUs you want to merge into a single base product. "
+        "If merged, all listings will map to the **shortest SKU** string, which resolves duplicates."
+    )
+
+    similarity_groups = st.session_state.get(SS_SIMILARITY_GROUPS, [])
+    staging_df_base = st.session_state[SS_STAGING_DF]
+    raw_staging_df = st.session_state[SS_RAW_STAGING_DF]
+
+    if not similarity_groups:
+        st.success("🎉 No highly similar SKUs detected across platforms. You can proceed directly!")
+        if st.button("Continue to Conflicts/Diff ➡️", type="primary", key="onb_step4_no_similar"):
+            # If no similarity groups, we just use the raw staging df as is
+            st.session_state[SS_STAGING_DF] = staging_df_base.copy()
+            # Run auto_group and compute_diff
+            with st.spinner("Analyzing products..."):
+                service = OnboardingService()
+                grouped_df, conflicts = service.auto_group(staging_df_base)
+                diff = service.compute_diff(staging_df_base, grouped_df)
+
+                st.session_state[SS_GROUPED_DF] = grouped_df
+                st.session_state[SS_CONFLICTS] = conflicts
+                st.session_state[SS_DIFF] = diff
+
+                # Pre-seed resolutions with defaults (longest name)
+                st.session_state[SS_RESOLUTIONS] = {
+                    c['sku']: c['default']
+                    for c in conflicts if c['field'] == 'name'
+                }
+
+                st.session_state[SS_STEP] = 5 if conflicts else 6
+                st.rerun()
+        return
+
+    st.markdown(f"Found **{len(similarity_groups)}** group(s) of similar SKUs. Select which ones to merge:")
+
+    sku_merges = st.session_state.get(SS_SKU_MERGES, {})
+
+    for idx, group in enumerate(similarity_groups):
+        shortest = group['shortest']
+        all_skus = group['all_skus']
+        marketplaces = group['marketplaces']
+
+        with st.container(border=True):
+            st.markdown(f"### 🔗 Group {idx + 1}: Base Product SKU `{shortest}`")
+            st.markdown(f"**Marketplaces involved:** {', '.join(marketplaces)}")
+            
+            # Show a nice list of matching SKUs
+            st.markdown("**SKU variations in this group:**")
+            for sku in all_skus:
+                mkt_for_sku = sorted(raw_staging_df[raw_staging_df['internal_sku'] == sku]['marketplace'].unique().tolist())
+                st.markdown(f"- `{sku}` (from {', '.join(mkt_for_sku)})")
+
+            # Checkbox to merge or keep separate (checked by default)
+            sku_merges[idx] = st.checkbox(
+                f"Merge all these into `{shortest}` (recommended)",
+                value=sku_merges.get(idx, True),
+                key=f"merge_group_{idx}"
+            )
+
+    st.session_state[SS_SKU_MERGES] = sku_merges
+
+    st.divider()
+
+    col_back, col_spacer, col_next = st.columns([1, 4, 1])
+    with col_back:
+        if st.button("⬅️ Back", key="onb_step4_back"):
+            st.session_state[SS_STEP] = 3
+            st.rerun()
+    with col_next:
+        if st.button("Continue ➡️", type="primary", key="onb_step4_next"):
+            # Apply merges to staging_df
+            staging_df = staging_df_base.copy()
+            merged_count = 0
+            
+            for idx, group in enumerate(similarity_groups):
+                if sku_merges.get(idx, True):
+                    shortest = group['shortest']
+                    all_skus = group['all_skus']
+                    # Overwrite internal_sku for all skus in this group to be the shortest one
+                    staging_df.loc[staging_df['internal_sku'].isin(all_skus), 'internal_sku'] = shortest
+                    merged_count += len(all_skus) - 1
+
+            st.session_state[SS_STAGING_DF] = staging_df
+            logger.info(f"SKU Similarity Merging complete: mapped {merged_count} duplicates to base SKUs")
+
+            # Re-run auto_group, conflicts and diff computation on the merged staging_df
+            with st.spinner("Analyzing merged products and conflicts..."):
+                service = OnboardingService()
+                grouped_df, conflicts = service.auto_group(staging_df)
+                diff = service.compute_diff(staging_df, grouped_df)
+
+                st.session_state[SS_GROUPED_DF] = grouped_df
+                st.session_state[SS_CONFLICTS] = conflicts
+                st.session_state[SS_DIFF] = diff
+
+                # Pre-seed resolutions with defaults (longest name)
+                st.session_state[SS_RESOLUTIONS] = {
+                    c['sku']: c['default']
+                    for c in conflicts if c['field'] == 'name'
+                }
+
+                # Advance to Step 5 (Conflicts) or Step 6 (Diff Report)
+                st.session_state[SS_STEP] = 5 if conflicts else 6
+                st.rerun()
+
+
+# =============================================================================
+# STEP 3: CATEGORY MAPPING
+# =============================================================================
+
+def _render_step_3_category_mapping():
+    """Step 3 — Interactive Category Mapping."""
+    st.header("Step 3 — Category Mapping")
+    st.markdown(
+        "Map raw categories from your marketplace files to your configured rules. "
+        "This ensures proper commission and closing fee calculations for your products."
+    )
+
+    staging_df = st.session_state[SS_STAGING_DF]
+    if staging_df is None or staging_df.empty:
+        st.error("No staging data found. Please go back and re-upload.")
+        if st.button("⬅️ Back to Upload"):
+            st.session_state[SS_STEP] = 1
+            st.rerun()
+        return
+
+    # Load pricing rules to get available categories per marketplace
+    from src.infrastructure.config_rules import load_excel_sheet, save_excel_sheet
+    pricing_rules = load_excel_sheet("Pricing_Rules")
+
+    # Clean categories (strip & fillna)
+    staging_df['category'] = staging_df['category'].fillna("Other").astype(str).str.strip()
+    
+    # Get unique (marketplace, category) pairs
+    unique_pairs = sorted(staging_df[['marketplace', 'category']].drop_duplicates().values.tolist())
+
+    if not unique_pairs:
+        st.success("🎉 No categories found in your uploads. Proceeding...")
+        if st.button("Continue ➡️", type="primary", key="onb_step3_cat_no_pairs"):
+            st.session_state[SS_STEP] = 4  # Advance to SKU Merging
+            st.rerun()
+        return
+
+    st.subheader("Discovered Categories & Mappings")
+    
+    # Display each pair inside a container
+    for mkt, raw_cat in unique_pairs:
+        with st.container(border=True):
+            col_info, col_select = st.columns([1, 1])
+            with col_info:
+                st.markdown(f"**Marketplace:** {mkt}")
+                st.markdown(f"**Raw Category:** `{raw_cat}`")
+                # Count of listings affected
+                count = len(staging_df[(staging_df['marketplace'] == mkt) & (staging_df['category'] == raw_cat)])
+                st.caption(f"Affects {count} listing(s)")
+
+            # Get available categories for this marketplace in configured rules
+            mkt_rules = pricing_rules[pricing_rules['marketplace'] == mkt]
+            available_cats = sorted(mkt_rules['category_ref'].unique().tolist())
+            if "Other" not in available_cats:
+                available_cats.append("Other")
+
+            # Determine best fuzzy default mapping
+            from src.core.services.finance_service import map_fuzzy_category
+            fuzzy_default = map_fuzzy_category(raw_cat)
+            
+            # Find default index
+            default_idx = 0
+            if fuzzy_default in available_cats:
+                default_idx = available_cats.index(fuzzy_default)
+            elif "Other" in available_cats:
+                default_idx = available_cats.index("Other")
+
+            options = available_cats + ["[+] Create New Category Config..."]
+            
+            with col_select:
+                selected_opt = st.selectbox(
+                    f"Select configured category for `{raw_cat}` ({mkt}):",
+                    options=options,
+                    index=default_idx,
+                    key=f"cat_map_{mkt}_{raw_cat}"
+                )
+
+            # If user wants to create a new category config on the fly
+            if selected_opt == "[+] Create New Category Config...":
+                with st.expander("➕ Create New Pricing Category Rule", expanded=True):
+                    new_cat_name = st.text_input(
+                        "Category Name",
+                        value=raw_cat,
+                        key=f"new_name_{mkt}_{raw_cat}"
+                    )
+                    col_ref, col_close = st.columns(2)
+                    with col_ref:
+                        referral_fee_pct = st.number_input(
+                            "Referral Fee %",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=15.0,
+                            step=0.5,
+                            key=f"new_ref_{mkt}_{raw_cat}"
+                        )
+                    with col_close:
+                        closing_fee = st.number_input(
+                            "Closing Fee (₹)",
+                            min_value=0.0,
+                            max_value=1000.0,
+                            value=0.0,
+                            step=1.0,
+                            key=f"new_close_{mkt}_{raw_cat}"
+                        )
+
+                    if st.button("➕ Add Category Rule", key=f"add_rule_btn_{mkt}_{raw_cat}"):
+                        new_cat_name = new_cat_name.strip()
+                        if not new_cat_name:
+                            st.error("Category name cannot be empty.")
+                        elif new_cat_name in available_cats:
+                            st.error(f"Category '{new_cat_name}' already exists in config for {mkt}.")
+                        else:
+                            with st.spinner("Appending new rule to Excel..."):
+                                new_rule = {
+                                    "marketplace": mkt,
+                                    "category_ref": new_cat_name,
+                                    "min_price": 0.0,
+                                    "max_price": 99999.0,
+                                    "referral_fee_pct": referral_fee_pct / 100.0,
+                                    "closing_fee_inr": closing_fee
+                                }
+                                pricing_rules = pd.concat([pricing_rules, pd.DataFrame([new_rule])], ignore_index=True)
+                                save_excel_sheet("Pricing_Rules", pricing_rules)
+                                st.success(f"Category '{new_cat_name}' successfully added to {mkt} pricing rules!")
+                                # Pre-select the newly added category by setting session state key directly before rerun
+                                st.session_state[f"cat_map_{mkt}_{raw_cat}"] = new_cat_name
+                                st.rerun()
+
+    st.divider()
+
+    # Back / Continue buttons
+    col_back, col_spacer, col_next = st.columns([1, 4, 1])
+    with col_back:
+        if st.button("⬅️ Back", key="onb_step3_cat_back"):
+            st.session_state[SS_STEP] = 2
+            st.rerun()
+    with col_next:
+        if st.button("Continue ➡️", type="primary", key="onb_step3_cat_next"):
+            # Gather mappings
+            final_mappings = {}
+            for mkt, raw_cat in unique_pairs:
+                val = st.session_state.get(f"cat_map_{mkt}_{raw_cat}")
+                if val and val != "[+] Create New Category Config...":
+                    final_mappings[(mkt, raw_cat)] = val
+                else:
+                    final_mappings[(mkt, raw_cat)] = "Other"
+
+            # Apply mapping to staging_df
+            mapped_staging_df = staging_df.copy()
+            for (mkt, raw_cat), mapped_cat in final_mappings.items():
+                mapped_staging_df.loc[
+                    (mapped_staging_df['marketplace'] == mkt) & (mapped_staging_df['category'] == raw_cat),
+                    'category'
+                ] = mapped_cat
+
+            st.session_state[SS_STAGING_DF] = mapped_staging_df
+            logger.info(f"Category mapping completed for {len(final_mappings)} categories")
+
+            # Advance to Step 4 (SKU Merging)
+            st.session_state[SS_STEP] = 4
+            st.rerun()
+
+
+# =============================================================================
+# STEP 5: CONFLICT RESOLUTION
+# =============================================================================
+
+def _render_step_5_conflicts():
+    """Step 5 — Resolve name/HSN conflicts via radio selection."""
+    st.header("Step 5 — Resolve Conflicts")
 
     conflicts = st.session_state[SS_CONFLICTS]
 
     if not conflicts:
         st.success("✅ No conflicts detected! Proceeding to diff report...")
-        st.session_state[SS_STEP] = 4
+        st.session_state[SS_STEP] = 6
         st.rerun()
         return
 
@@ -428,11 +726,11 @@ def _render_step_3_conflicts():
                     default_idx = 0
 
                 chosen_label = st.radio(
-                    f"Select value for {field}:",
-                    options=option_labels,
-                    index=default_idx,
-                    key=f"conflict_{sku}_{field}",
-                    label_visibility="collapsed",
+                     f"Select value for {field}:",
+                     options=option_labels,
+                     index=default_idx,
+                     key=f"conflict_{sku}_{field}",
+                     label_visibility="collapsed",
                 )
 
                 # Map label back to actual value
@@ -449,23 +747,23 @@ def _render_step_3_conflicts():
 
     col_back, col_spacer, col_next = st.columns([1, 4, 1])
     with col_back:
-        if st.button("⬅️ Back", key="onb_step3_back"):
-            st.session_state[SS_STEP] = 2
-            st.rerun()
-    with col_next:
-        if st.button("📊 View Diff Report ➡️", type="primary", key="onb_step3_next"):
-            logger.info(f"Resolutions captured for {len(resolutions)} SKUs")
+        if st.button("⬅️ Back", key="onb_step5_back_conf"):
             st.session_state[SS_STEP] = 4
             st.rerun()
+    with col_next:
+        if st.button("📊 View Diff Report ➡️", type="primary", key="onb_step5_next_conf"):
+            logger.info(f"Resolutions captured for {len(resolutions)} SKUs")
+            st.session_state[SS_STEP] = 6
+            st.rerun()
 
 
 # =============================================================================
-# STEP 4: DIFF REPORT
+# STEP 6: DIFF REPORT
 # =============================================================================
 
-def _render_step_4_diff():
-    """Step 4 — Show diff against existing DB before commit."""
-    st.header("Step 4 — Diff Report")
+def _render_step_6_diff():
+    """Step 6 — Show diff against existing DB before commit."""
+    st.header("Step 6 — Diff Report")
 
     diff = st.session_state[SS_DIFF]
     if not diff:
@@ -555,22 +853,22 @@ def _render_step_4_diff():
     # Final confirmation
     col_back, col_spacer, col_commit = st.columns([1, 3, 2])
     with col_back:
-        if st.button("⬅️ Back", key="onb_step4_back"):
-            st.session_state[SS_STEP] = 3 if st.session_state[SS_CONFLICTS] else 2
+        if st.button("⬅️ Back", key="onb_step6_back"):
+            st.session_state[SS_STEP] = 5 if st.session_state[SS_CONFLICTS] else 4
             st.rerun()
     with col_commit:
         commit_label = "✅ Commit to Database" if is_first else "✅ Apply Changes"
-        if st.button(commit_label, type="primary", key="onb_step4_commit"):
+        if st.button(commit_label, type="primary", key="onb_step6_commit"):
             _execute_commit()
 
 
 # =============================================================================
-# STEP 5: SUCCESS
+# STEP 7: SUCCESS
 # =============================================================================
 
-def _render_step_5_success():
-    """Step 5 — Show commit summary and next-step guidance."""
-    st.header("Step 5 — Onboarding Complete! 🎉")
+def _render_step_7_success():
+    """Step 7 — Show commit summary and next-step guidance."""
+    st.header("Step 7 — Onboarding Complete! 🎉")
 
     summary = st.session_state.get(SS_COMMIT_SUMMARY)
     if not summary:
@@ -639,7 +937,7 @@ def _render_step_5_success():
 
 
 # =============================================================================
-# COMMIT EXECUTION (called from Step 4)
+# COMMIT EXECUTION (called from Step 6)
 # =============================================================================
 
 def _execute_commit():
@@ -664,7 +962,7 @@ def _execute_commit():
                 name_resolutions=resolutions,
             )
             st.session_state[SS_COMMIT_SUMMARY] = summary
-            st.session_state[SS_STEP] = 5
+            st.session_state[SS_STEP] = 7
             logger.info(f"✅ Commit successful: {summary}")
             st.rerun()
 
