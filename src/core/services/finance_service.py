@@ -66,12 +66,11 @@ class FinanceService:
             logger.info(f"Calculating profitability (market filter: {marketplace_filter or 'ALL'})")
             
             try:
-                conn = self.engine.connect()
-                
-                # 1. Fetch Core Data (Listings + Packs + Products)
-                logger.debug("Fetching core listings data from database...")
-                query = """
-                SELECT 
+                with self.engine.connect() as conn:
+                    # 1. Fetch Core Data (Listings + Packs + Products)
+                    logger.debug("Fetching core listings data from database...")
+                    query = """
+                SELECT
                     cl.marketplace, cl.channel_sku, cl.selling_price, cl.listing_status,
                     pm.pack_sku, pm.packaging_cogs, pm.quantity,
                     pm.final_l_cm, pm.final_w_cm, pm.final_h_cm, pm.final_wt_kg,
@@ -81,37 +80,35 @@ class FinanceService:
                 JOIN product_master p ON pm.master_sku = p.sku
                 WHERE 1=1
                 """
-                params = {}
-                if marketplace_filter:
-                    query += " AND cl.marketplace = :marketplace"
-                    params['marketplace'] = marketplace_filter
-                
-                df = pd.read_sql(text(query), conn, params=params)
-                logger.debug(f"Retrieved {len(df)} listings for analysis")
-                
-                # Load Config and Rules
-                # First, check if SQLite has the rules tables populated (common in tests/conftest.py)
-                use_sql_rules = False
-                try:
-                    pricing_count = conn.execute(text("SELECT COUNT(*) FROM pricing_rules")).scalar() or 0
-                    if pricing_count > 0:
-                        use_sql_rules = True
-                except Exception:
-                    pass
+                    params = {}
+                    if marketplace_filter:
+                        query += " AND cl.marketplace = :marketplace"
+                        params['marketplace'] = marketplace_filter
 
-                if use_sql_rules:
-                    logger.debug("Loading rules from SQLite database (tests/fallback)...")
-                    config_df = pd.read_sql("SELECT * FROM config", conn)
-                    pricing_rules = pd.read_sql("SELECT * FROM pricing_rules", conn)
-                    shipping_rules = pd.read_sql("SELECT * FROM shipping_rules", conn)
-                else:
-                    logger.debug("Loading rules from Excel config...")
-                    from src.infrastructure.config_rules import load_excel_sheet
-                    config_df = load_excel_sheet("Config")
-                    pricing_rules = load_excel_sheet("Pricing_Rules")
-                    shipping_rules = load_excel_sheet("Shipping_Rules")
-                
-                conn.close()
+                    df = pd.read_sql(text(query), conn, params=params)
+                    logger.debug(f"Retrieved {len(df)} listings for analysis")
+
+                    # Load Config and Rules
+                    # First, check if SQLite has the rules tables populated (common in tests/conftest.py)
+                    use_sql_rules = False
+                    try:
+                        pricing_count = conn.execute(text("SELECT COUNT(*) FROM pricing_rules")).scalar() or 0
+                        if pricing_count > 0:
+                            use_sql_rules = True
+                    except Exception:
+                        pass
+
+                    if use_sql_rules:
+                        logger.debug("Loading rules from SQLite database (tests/fallback)...")
+                        config_df = pd.read_sql("SELECT * FROM config", conn)
+                        pricing_rules = pd.read_sql("SELECT * FROM pricing_rules", conn)
+                        shipping_rules = pd.read_sql("SELECT * FROM shipping_rules", conn)
+                    else:
+                        logger.debug("Loading rules from Excel config...")
+                        from src.infrastructure.config_rules import load_excel_sheet
+                        config_df = load_excel_sheet("Config")
+                        pricing_rules = load_excel_sheet("Pricing_Rules")
+                        shipping_rules = load_excel_sheet("Shipping_Rules")
 
                 if df.empty:
                     logger.warning("No data found for profitability calculation")
