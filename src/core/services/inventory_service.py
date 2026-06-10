@@ -189,35 +189,92 @@ class InventoryService:
         return df
 
     def add_stock(self, sku, qty, location, unit_type, reason):
-        """Updates inventory_master and logs to ledger."""
+        """Updates inventory_master and logs to ledger.
+
+        Args:
+            sku: Product SKU
+            qty: Quantity to add (packs for GODOWN, pieces for SHOP)
+            location: 'GODOWN' or 'SHOP' — determines which column is updated
+            unit_type: 'PACK' or 'PIECE' — recorded in the reason string for audit context
+            reason: Human-readable description of the adjustment
+
+        The inventory update and ledger insert are wrapped in a single transaction
+        via engine.begin(). If the ledger insert fails, the inventory update is
+        rolled back so stock totals and the audit trail never diverge.
+        """
         col = "godown_stock_packs" if location == "GODOWN" else "shop_stock_pieces"
-        with self.engine.connect() as conn:
+        # Encode location and unit_type into reason — these columns no longer exist in
+        # stock_ledger after the schema refactor that introduced packs/multiplier columns.
+        ledger_reason = f"[{location}/{unit_type}] {reason}".strip()
+
+        with self.engine.begin() as conn:
             # INSERT OR IGNORE ensures the row exists in inventory_master first
-            conn.execute(text("INSERT OR IGNORE INTO inventory_master (sku) VALUES (:sku)"), {"sku": sku})
-            conn.execute(text(f"UPDATE inventory_master SET {col} = {col} + :qty, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"), 
-                         {"qty": qty, "sku": sku})
-            
-            conn.execute(text("""INSERT INTO stock_ledger (sku, transaction_type, location, qty_change, unit_type, reason) 
-                                VALUES (:sku, 'ADJUSTMENT', :loc, :qty, :unit, :reason)"""),
-                         {"sku": sku, "loc": location, "qty": qty, "unit": unit_type, "reason": reason})
-            conn.commit()
+            conn.execute(
+                text("INSERT OR IGNORE INTO inventory_master (sku) VALUES (:sku)"),
+                {"sku": sku}
+            )
+            conn.execute(
+                text(f"UPDATE inventory_master SET {col} = {col} + :qty, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"),
+                {"qty": qty, "sku": sku}
+            )
+            # stock_ledger columns: sku, transaction_type, packs, multiplier, total_pieces_affected, reason
+            # For a simple stock adjustment the multiplier is not known here, so default to 1.
+            conn.execute(
+                text("""
+                    INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                    VALUES (:sku, 'ADJUSTMENT', :packs, :multiplier, :total, :reason)
+                """),
+                {
+                    "sku": sku,
+                    "packs": qty,
+                    "multiplier": 1,
+                    "total": qty,
+                    "reason": ledger_reason,
+                }
+            )
+            # engine.begin() auto-commits on clean exit and rolls back on exception
 
     def transfer_to_shop(self, sku, packs, multiplier):
-        """Moves packs from Godown and converts to pieces in Shop."""
-        with self.engine.connect() as conn:
-            # Deduct Packs from Godown
-            conn.execute(text("UPDATE inventory_master SET godown_stock_packs = godown_stock_packs - :p WHERE sku = :sku"),
-                         {"p": packs, "sku": sku})
-            # Add Pieces to Shop
-            pieces = packs * multiplier
-            conn.execute(text("UPDATE inventory_master SET shop_stock_pieces = shop_stock_pieces + :pc WHERE sku = :sku"),
-                         {"pc": pieces, "sku": sku})
-            # Ledger entries
-            conn.execute(text("INSERT INTO stock_ledger (sku, transaction_type, location, qty_change, unit_type, reason) VALUES (:sku, 'TRANSFER', 'GODOWN', :q, 'PACK', 'Moved to Shop')"),
-                         {"sku": sku, "q": -packs})
-            conn.execute(text("INSERT INTO stock_ledger (sku, transaction_type, location, qty_change, unit_type, reason) VALUES (:sku, 'TRANSFER', 'SHOP', :q, 'PIECE', 'Received from Godown')"),
-                         {"sku": sku, "q": pieces})
-            conn.commit()
+        """Moves packs from Godown and converts to pieces in Shop.
+
+        Args:
+            sku: Product SKU
+            packs: Number of packs to move out of godown
+            multiplier: Pieces per pack — used to calculate pieces added to shop
+
+        Two inventory updates and two ledger rows are wrapped in a single transaction
+        via engine.begin(). All four operations succeed together or none are applied.
+        """
+        pieces = packs * multiplier
+
+        with self.engine.begin() as conn:
+            # Deduct packs from Godown
+            conn.execute(
+                text("UPDATE inventory_master SET godown_stock_packs = godown_stock_packs - :p, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"),
+                {"p": packs, "sku": sku}
+            )
+            # Add pieces to Shop
+            conn.execute(
+                text("UPDATE inventory_master SET shop_stock_pieces = shop_stock_pieces + :pc, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"),
+                {"pc": pieces, "sku": sku}
+            )
+            # Ledger: REMOVE from godown
+            conn.execute(
+                text("""
+                    INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                    VALUES (:sku, 'REMOVE', :p, :m, :tp, 'Moved to Shop')
+                """),
+                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces}
+            )
+            # Ledger: ADD to shop (packs converted to pieces)
+            conn.execute(
+                text("""
+                    INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                    VALUES (:sku, 'ADD', :p, :m, :tp, 'Received from Godown')
+                """),
+                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces}
+            )
+            # engine.begin() auto-commits on clean exit and rolls back on exception
 
     def get_godown_inventory(self):
         """Fetches SKU, Category, Current Packs, and Multiplier."""
