@@ -232,6 +232,11 @@ def _apply_column_migrations(engine):
             "updated_by VARCHAR(100) DEFAULT 'system'",
             "stock_ledger.updated_by",
         ),
+        (
+            "ALTER TABLE product_master ADD COLUMN "
+            "supplier_product_code VARCHAR(100)",
+            "product_master.supplier_product_code",
+        ),
     ]
     with engine.connect() as conn:
         for sql, description in migrations:

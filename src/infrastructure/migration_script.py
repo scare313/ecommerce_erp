@@ -167,13 +167,14 @@ def run_migration():
                 df['name'] = df['name'].fillna(df['sku'])
                 
                 db_cols = ['sku', 'name', 'category', 'brand', 'lifecycle_status', 'supplier', 'supplier_code',
+                           'supplier_product_code',
                            'mfg_cost', 'packaging_cost', 'labeling_labor', 'inbound_transport', 'total_unit_cogs',
                            'hsn', 'gst_rate', 'mrp']
-                
-                for col in db_cols: 
-                    if col not in df.columns: 
+
+                for col in db_cols:
+                    if col not in df.columns:
                         df[col] = None
-                    if col in ['mfg_cost', 'gst_rate']: 
+                    if col in ['mfg_cost', 'gst_rate']:
                         df[col] = df[col].fillna(0.0)
 
                 df[db_cols].to_sql('product_master', engine, if_exists='append', index=False)
@@ -336,10 +337,11 @@ if __name__ == "__main__":
             df['name'] = df['name'].fillna(df['sku'])
             
             db_cols = ['sku', 'name', 'category', 'brand', 'lifecycle_status', 'supplier', 'supplier_code',
+                       'supplier_product_code',
                        'mfg_cost', 'packaging_cost', 'labeling_labor', 'inbound_transport', 'total_unit_cogs',
                        'hsn', 'gst_rate', 'mrp']
-            
-            for col in db_cols: 
+
+            for col in db_cols:
                 if col not in df.columns: df[col] = None
                 if col in ['mfg_cost', 'gst_rate']: df[col] = df[col].fillna(0.0)
 

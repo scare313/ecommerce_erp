@@ -42,6 +42,7 @@ CREATE TABLE product_master (
     -- Supplier Info
     supplier VARCHAR(100),
     supplier_code VARCHAR(100),
+    supplier_product_code VARCHAR(100),
     
     -- Cost Structure
     mfg_cost DECIMAL(10,2) DEFAULT 0,

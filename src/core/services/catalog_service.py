@@ -109,6 +109,31 @@ class CatalogService:
             data['total_unit_cogs'] = float(mfg) + float(box) + float(labor) + float(transport)
             
             logger.debug(f"Calculated COGS: {data['total_unit_cogs']}")
+
+            # Validate supplier_code against supplier_master if provided.
+            # NULL / blank supplier_code is permitted (legacy and wizard-imported products).
+            # product_master.supplier freetext is NOT updated here — it is a historical field.
+            supplier_code = str(data.get('supplier_code') or '').strip().upper()
+            if supplier_code:
+                with self.engine.connect() as conn:
+                    row = conn.execute(
+                        text(
+                            "SELECT name FROM supplier_master "
+                            "WHERE supplier_code = :code AND is_active = 1"
+                        ),
+                        {"code": supplier_code},
+                    ).fetchone()
+                if row is None:
+                    raise DataValidationException(
+                        f"Supplier '{supplier_code}' does not exist in Supplier Master."
+                    )
+                data['supplier_code'] = supplier_code  # persist normalised value
+
+            # Normalise supplier_product_code: strip whitespace, store NULL when blank.
+            # Case is preserved — supplier codes are case-sensitive in external systems.
+            spc = str(data.get('supplier_product_code') or '').strip()
+            data['supplier_product_code'] = spc if spc else None
+
             self._insert('product_master', data)
             logger.info(f"✅ Product created: {data.get('sku')}")
             

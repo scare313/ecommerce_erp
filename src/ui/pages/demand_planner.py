@@ -37,7 +37,7 @@ def render():
         st.sidebar.header("Planning Parameters")
         sales_days = st.sidebar.number_input("Sales History (Days)", value=30, help="Duration of the uploaded sales reports")
         purchase_period = st.sidebar.number_input("Days to Cover", value=15, help="How many days of stock do you want to buy?")
-        lead_time = st.sidebar.number_input("Supplier Lead Time", value=10, help="Days it takes for stock to arrive")
+        lead_time = st.sidebar.number_input("Default Lead Time (days)", value=10, help="Fallback for suppliers not in Supplier Master.")
         safety_stock = st.sidebar.number_input("Safety Stock (Days)", value=7, help="Buffer for unexpected demand")
 
         logger.debug(f"Planning params: sales_days={sales_days}, purchase_period={purchase_period}, lead_time={lead_time}, safety_stock={safety_stock}")
@@ -111,12 +111,44 @@ def render():
                     tab1, tab2 = st.tabs(["📋 Purchase Plan", "⚠️ Unmapped Sales"])
 
                     with tab1:
-                        st.dataframe(
-                            plan_df.style.background_gradient(subset=['to_purchase'], cmap="Greens"),
-                            width='stretch',
-                            height=600
+                        # Curated display: remove product_name (SKU is sufficient),
+                        # keep supplier_name only (supplier_code + supplier freetext
+                        # are redundant here), hide pure calculation intermediates.
+                        display_df = (
+                            plan_df[['base_sku', 'supplier_name', 'category',
+                                     'lead_time_days', 'stock_qty', 'to_purchase']]
+                            .rename(columns={
+                                'base_sku':       'SKU',
+                                'supplier_name':  'Supplier',
+                                'category':       'Category',
+                                'lead_time_days': 'Lead Time (days)',
+                                'stock_qty':      'Stock On Hand',
+                                'to_purchase':    'To Purchase',
+                            })
                         )
-                        
+                        st.dataframe(
+                            display_df.style.background_gradient(subset=['To Purchase'], cmap="Greens"),
+                            use_container_width=True,
+                            height=600,
+                            hide_index=True,
+                        )
+
+                        with st.expander("📊 Lead Times Applied per Supplier"):
+                            lt_cols = ['supplier_name', 'supplier_product_code',
+                                       'lead_time_days', 'lead_time_source']
+                            lt_display = (
+                                plan_df[lt_cols]
+                                .drop_duplicates()
+                                .reset_index(drop=True)
+                                .rename(columns={
+                                    'supplier_name':         'Supplier',
+                                    'supplier_product_code': 'Supplier Product Code',
+                                    'lead_time_days':        'Lead Time (days)',
+                                    'lead_time_source':      'Source',
+                                })
+                            )
+                            st.dataframe(lt_display, hide_index=True)
+
                         # Download
                         try:
                             buffer = io.BytesIO()
