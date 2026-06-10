@@ -4,10 +4,34 @@ PRAGMA foreign_keys = OFF;
 DROP TABLE IF EXISTS channel_listings;
 DROP TABLE IF EXISTS pack_master;
 DROP TABLE IF EXISTS product_master;
+DROP TABLE IF EXISTS supplier_master;
+DROP TABLE IF EXISTS schema_migrations;
 
 PRAGMA foreign_keys = ON;
 
--- 1. PRODUCT MASTER
+-- 1. SCHEMA MIGRATIONS (no dependencies — must be first)
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    migration_name VARCHAR(100) PRIMARY KEY,
+    applied_at     DATETIME     DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. SUPPLIER MASTER (parent of product_master)
+CREATE TABLE IF NOT EXISTS supplier_master (
+    supplier_code  VARCHAR(100) PRIMARY KEY,
+    name           VARCHAR(200) NOT NULL,
+    contact_name   VARCHAR(100),
+    contact_email  VARCHAR(200),
+    contact_phone  VARCHAR(50),
+    lead_time_days INT          NOT NULL DEFAULT 10,
+    payment_terms  VARCHAR(100),
+    notes          TEXT,
+    is_active      INTEGER      NOT NULL DEFAULT 1
+                   CHECK (is_active IN (0, 1)),
+    created_at     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME     DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. PRODUCT MASTER
 CREATE TABLE product_master (
     sku VARCHAR(50) PRIMARY KEY,
     name VARCHAR(255),
@@ -32,7 +56,7 @@ CREATE TABLE product_master (
     mrp DECIMAL(10,2)
 );
 
--- 2. PACK MASTER
+-- 4. PACK MASTER
 CREATE TABLE pack_master (
     pack_sku VARCHAR(50) PRIMARY KEY,
     master_sku VARCHAR(50) REFERENCES product_master(sku),
@@ -46,7 +70,7 @@ CREATE TABLE pack_master (
     final_wt_kg DECIMAL(10,3)
 );
 
--- 3. CHANNEL LISTINGS
+-- 5. CHANNEL LISTINGS
 CREATE TABLE channel_listings (
     channel_sku VARCHAR(100),
     marketplace VARCHAR(50),

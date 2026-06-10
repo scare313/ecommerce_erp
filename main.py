@@ -40,7 +40,7 @@ try:
     page = st.sidebar.radio(
         "Go to",
         ["Home", "Onboarding Wizard", "Profit Dashboard", "Gap Analysis", "Demand Planner",
-        "Data Manager", "Inventory Manager"]
+        "Data Manager", "Supplier Master", "Inventory Manager"]
     )
 
     # Empty-DB detection banner — guides new users to the wizard
@@ -92,6 +92,10 @@ try:
             logger.debug("Loading Data Manager...")
             from src.ui.pages import data_manager
             data_manager.render()
+        elif page == "Supplier Master":
+            logger.debug("Loading Supplier Master...")
+            from src.ui.pages import supplier_manager
+            supplier_manager.render()
         elif page == "Inventory Manager":
             logger.debug("Loading Inventory Manager...")
             from src.ui.pages import inventory_manager
