@@ -85,11 +85,12 @@ def _check_and_migrate_existing_db():
                 logger.error(f"Migration validation failed: {str(e)}", exc_info=True)
                 return False
             except Exception as e:
-                logger.error(f"Migration failed: {str(e)}", exc_info=True)
-                logger.warning(
-                    "Migration error — please use the Onboarding Wizard."
+                logger.error(
+                    f"Migration failed with an unexpected error: {str(e)}. "
+                    "Database may be in an inconsistent state.",
+                    exc_info=True
                 )
-                return True  # Schema works; let user reach the wizard
+                return False
                 
     except Exception as e:
         logger.warning(f"Error checking existing database: {str(e)}. Attempting migration...", exc_info=True)
@@ -108,9 +109,12 @@ def _check_and_migrate_existing_db():
             logger.error(f"Migration validation failed: {str(migration_error)}", exc_info=True)
             return False
         except Exception as migration_error:
-            logger.error(f"Migration also failed: {str(migration_error)}", exc_info=True)
-            logger.warning("You may still use the Onboarding Wizard.")
-            return True
+            logger.error(
+                f"Migration also failed with an unexpected error: {str(migration_error)}. "
+                "Database cannot be recovered automatically.",
+                exc_info=True
+            )
+            return False
 
 
 def _create_new_database():
