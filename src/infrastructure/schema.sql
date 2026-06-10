@@ -81,10 +81,12 @@ CREATE TABLE IF NOT EXISTS inventory_master (
 CREATE TABLE IF NOT EXISTS stock_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sku VARCHAR(50),
-    transaction_type VARCHAR(20), -- 'ADD' or 'REMOVE'
+    transaction_type VARCHAR(20),       -- 'ADD', 'REMOVE', 'STOCK_TAKE'
     packs INT,
-    multiplier INT,               -- The multiplier used at that moment
-    total_pieces_affected INT,    -- packs * multiplier
-    reason TEXT,
+    multiplier INT,                     -- The multiplier used at that moment
+    total_pieces_affected INT,          -- packs * multiplier
+    reason_code VARCHAR(50) DEFAULT 'ADJUSTMENT', -- Structured reason (RECEIVED, SALE, DAMAGED, etc.)
+    reason TEXT,                        -- Optional freetext notes
+    updated_by VARCHAR(100) DEFAULT 'system',     -- Username for audit trail
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );

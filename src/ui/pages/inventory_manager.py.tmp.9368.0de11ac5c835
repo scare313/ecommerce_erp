@@ -438,25 +438,19 @@ def render():
                 if df_godown.empty:
                     st.info("No godown stock available to transfer.")
                 else:
-                    # SKU selectbox is outside the form so changing it triggers an
-                    # immediate rerender — keeping current_godown_packs and
-                    # default_mult accurate and max_value correct before submit.
-                    transfer_sku = st.selectbox(
-                        "Select SKU (Godown stock only)",
-                        df_godown['sku'].unique(),
-                        key="tab5_transfer_sku",
-                    )
-
-                    godown_row = df_godown[df_godown['sku'] == transfer_sku].iloc[0]
-                    current_godown_packs = int(godown_row['godown_stock_packs'])
-                    try:
-                        default_mult = int(godown_row['pack_multiplier'])
-                    except (ValueError, TypeError):
-                        default_mult = 1
-
-                    st.caption(f"Godown balance: **{current_godown_packs} packs**")
-
                     with st.form("transfer_form"):
+                        transfer_sku = st.selectbox(
+                            "Select SKU (Godown stock only)",
+                            df_godown['sku'].unique()
+                        )
+
+                        godown_row = df_godown[df_godown['sku'] == transfer_sku].iloc[0]
+                        current_godown_packs = int(godown_row['godown_stock_packs'])
+                        try:
+                            default_mult = int(godown_row['pack_multiplier'])
+                        except (ValueError, TypeError):
+                            default_mult = 1
+
                         c1, c2 = st.columns(2)
                         transfer_packs = c1.number_input(
                             "Packs to Transfer",
@@ -468,6 +462,12 @@ def render():
                             "Pieces per Pack",
                             min_value=1,
                             value=default_mult,
+                        )
+
+                        st.caption(
+                            f"Godown balance: **{current_godown_packs} packs** · "
+                            f"Transfer will move **{transfer_packs} × {pack_size} = "
+                            f"{transfer_packs * pack_size} pieces** to shop."
                         )
 
                         if st.form_submit_button("Transfer to Shop"):

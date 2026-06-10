@@ -147,27 +147,17 @@ class InventoryService:
         
         plan['gross_requirement'] = plan['lead_time_demand'] + plan['safety_stock'] + plan['cycle_stock']
         
-        # 7. Subtract Current Stock
-        # Priority: uploaded stock file > live inventory_master > 0 (last resort)
+        # 7. Subtract Current Stock (if provided)
         if files_dict.get('stock'):
-            stock_df, stock_err = parse_stock_file(files_dict['stock'])
+            stock_df, _ = parse_stock_file(files_dict['stock'])
             if stock_df is not None:
-                logger.info("Using uploaded stock file for purchase planning")
+                # Merge stock onto plan
                 plan = pd.merge(plan, stock_df, left_on='base_sku', right_on='sku', how='left')
                 plan['stock_qty'] = plan['stock_qty'].fillna(0)
             else:
-                logger.warning(
-                    f"Stock file parse failed ({stock_err}); "
-                    "falling back to live inventory_master"
-                )
-                live_stock = self.get_stock_for_planning()
-                plan = pd.merge(plan, live_stock, left_on='base_sku', right_on='sku', how='left')
-                plan['stock_qty'] = plan['stock_qty'].fillna(0)
+                plan['stock_qty'] = 0
         else:
-            logger.info("No stock file uploaded — using live inventory_master for purchase planning")
-            live_stock = self.get_stock_for_planning()
-            plan = pd.merge(plan, live_stock, left_on='base_sku', right_on='sku', how='left')
-            plan['stock_qty'] = plan['stock_qty'].fillna(0)
+            plan['stock_qty'] = 0
             
         # 8. Net Requirement
         plan['to_purchase'] = (plan['gross_requirement'] - plan['stock_qty']).clip(lower=0)
@@ -203,8 +193,7 @@ class InventoryService:
         df['total_pieces'] = (df['godown_stock_packs'] * df['multiplier']) + df['shop_stock_pieces']
         return df
 
-    def add_stock(self, sku, qty, location, unit_type, reason,
-                  reason_code="ADJUSTMENT", updated_by="system"):
+    def add_stock(self, sku, qty, location, unit_type, reason):
         """Updates inventory_master and logs to ledger.
 
         Args:
@@ -213,8 +202,6 @@ class InventoryService:
             location: 'GODOWN' or 'SHOP' — determines which column is updated
             unit_type: 'PACK' or 'PIECE' — recorded in the reason string for audit context
             reason: Human-readable description of the adjustment
-            reason_code: Structured reason code for the ledger (default 'ADJUSTMENT')
-            updated_by: Username for audit trail (default 'system')
 
         The inventory update and ledger insert are wrapped in a single transaction
         via engine.begin(). If the ledger insert fails, the inventory update is
@@ -235,53 +222,37 @@ class InventoryService:
                 text(f"UPDATE inventory_master SET {col} = {col} + :qty, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"),
                 {"qty": qty, "sku": sku}
             )
+            # stock_ledger columns: sku, transaction_type, packs, multiplier, total_pieces_affected, reason
+            # For a simple stock adjustment the multiplier is not known here, so default to 1.
             conn.execute(
                 text("""
-                    INSERT INTO stock_ledger
-                        (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by)
-                    VALUES (:sku, 'ADJUSTMENT', :packs, 1, :total, :reason_code, :reason, :updated_by)
+                    INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                    VALUES (:sku, 'ADJUSTMENT', :packs, :multiplier, :total, :reason)
                 """),
                 {
                     "sku": sku,
                     "packs": qty,
+                    "multiplier": 1,
                     "total": qty,
-                    "reason_code": reason_code,
                     "reason": ledger_reason,
-                    "updated_by": updated_by,
                 }
             )
             # engine.begin() auto-commits on clean exit and rolls back on exception
 
-    def transfer_to_shop(self, sku, packs, multiplier, updated_by="system"):
+    def transfer_to_shop(self, sku, packs, multiplier):
         """Moves packs from Godown and converts to pieces in Shop.
 
         Args:
             sku: Product SKU
             packs: Number of packs to move out of godown
             multiplier: Pieces per pack — used to calculate pieces added to shop
-            updated_by: Username for audit trail (default 'system')
 
-        A guard prevents transferring more packs than currently in godown.
         Two inventory updates and two ledger rows are wrapped in a single transaction
-        via engine.begin(). All operations succeed together or none are applied.
+        via engine.begin(). All four operations succeed together or none are applied.
         """
         pieces = packs * multiplier
 
         with self.engine.begin() as conn:
-            # Guard: prevent transferring more packs than available in godown
-            result = conn.execute(
-                text("SELECT godown_stock_packs FROM inventory_master WHERE sku = :sku"),
-                {"sku": sku}
-            )
-            row = result.fetchone()
-            current_godown = row[0] if (row and row[0] is not None) else 0
-            if current_godown < packs:
-                raise DataValidationException(
-                    f"Cannot transfer {packs} packs from godown for {sku}: "
-                    f"only {current_godown} available. Operation cancelled."
-                )
-
             # Deduct packs from Godown
             conn.execute(
                 text("UPDATE inventory_master SET godown_stock_packs = godown_stock_packs - :p, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"),
@@ -295,22 +266,18 @@ class InventoryService:
             # Ledger: REMOVE from godown
             conn.execute(
                 text("""
-                    INSERT INTO stock_ledger
-                        (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by)
-                    VALUES (:sku, 'REMOVE', :p, :m, :tp, 'TRANSFER', 'Moved to Shop', :updated_by)
+                    INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                    VALUES (:sku, 'REMOVE', :p, :m, :tp, 'Moved to Shop')
                 """),
-                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces, "updated_by": updated_by}
+                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces}
             )
             # Ledger: ADD to shop (packs converted to pieces)
             conn.execute(
                 text("""
-                    INSERT INTO stock_ledger
-                        (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by)
-                    VALUES (:sku, 'ADD', :p, :m, :tp, 'TRANSFER', 'Received from Godown', :updated_by)
+                    INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                    VALUES (:sku, 'ADD', :p, :m, :tp, 'Received from Godown')
                 """),
-                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces, "updated_by": updated_by}
+                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces}
             )
             # engine.begin() auto-commits on clean exit and rolls back on exception
 
@@ -354,8 +321,7 @@ class InventoryService:
         df['sku'] = df['sku'].str.upper().str.strip()
         return df
 
-    def manage_godown_stock(self, sku, packs, multiplier, action_type,
-                            reason="", reason_code="ADJUSTMENT", updated_by="system"):
+    def manage_godown_stock(self, sku, packs, multiplier, action_type, reason=""):
         """Handles adding or removing packs with a specific multiplier."""
         # Calculate total pieces for the ledger record
         total_pieces = packs * multiplier
@@ -397,81 +363,10 @@ class InventoryService:
 
             # 4. Log to Ledger for audit trail
             conn.execute(text("""
-                INSERT INTO stock_ledger
-                    (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                     reason_code, reason, updated_by)
-                VALUES (:sku, :action, :p, :m, :tp, :reason_code, :r, :updated_by)
+                INSERT INTO stock_ledger (sku, transaction_type, packs, multiplier, total_pieces_affected, reason)
+                VALUES (:sku, :action, :p, :m, :tp, :r)
             """), {
                 "sku": sku, "action": action_type, "p": packs,
-                "m": multiplier, "tp": total_pieces,
-                "reason_code": reason_code, "r": reason, "updated_by": updated_by
+                "m": multiplier, "tp": total_pieces, "r": reason
             })
-            # engine.begin() auto-commits on clean exit and rolls back on exception
-
-    def manage_shop_stock(self, sku, pieces, action_type,
-                          reason_code="ADJUSTMENT", reason="", updated_by="system"):
-        """Adds or removes pieces from shop_stock_pieces with a ledger entry.
-
-        Args:
-            sku: Product SKU
-            pieces: Number of pieces to add or remove
-            action_type: 'ADD' or 'REMOVE'
-            reason_code: Structured reason code (SALE, DAMAGED, COUNT_CORRECTION, etc.)
-            reason: Optional freetext notes
-            updated_by: Username for audit trail (default 'system')
-
-        A guard prevents REMOVE operations from driving shop_stock_pieces below zero.
-        The inventory update and ledger insert are wrapped in a single engine.begin()
-        transaction — both commit together or neither is applied.
-
-        Note: shop stock is tracked in pieces, not packs. The ledger records
-        multiplier=1 and total_pieces_affected=pieces to reflect this.
-        """
-        piece_change = pieces if action_type == "ADD" else -pieces
-
-        with self.engine.begin() as conn:
-            # 1. Ensure the SKU row exists
-            conn.execute(
-                text("INSERT OR IGNORE INTO inventory_master (sku) VALUES (:sku)"),
-                {"sku": sku}
-            )
-
-            # 2. Guard: prevent negative shop stock on REMOVE
-            if action_type == "REMOVE":
-                result = conn.execute(
-                    text("SELECT shop_stock_pieces FROM inventory_master WHERE sku = :sku"),
-                    {"sku": sku}
-                )
-                row = result.fetchone()
-                current_pieces = row[0] if (row and row[0] is not None) else 0
-                if current_pieces < pieces:
-                    raise DataValidationException(
-                        f"Cannot remove {pieces} pieces from shop for {sku}: "
-                        f"only {current_pieces} in shop. Operation cancelled."
-                    )
-
-            # 3. Apply the change to shop_stock_pieces
-            conn.execute(
-                text("""
-                    UPDATE inventory_master
-                    SET shop_stock_pieces = shop_stock_pieces + :pieces,
-                        last_updated = CURRENT_TIMESTAMP
-                    WHERE sku = :sku
-                """),
-                {"pieces": piece_change, "sku": sku}
-            )
-
-            # 4. Log to Ledger (multiplier=1: shop stock is in pieces, not packs)
-            conn.execute(
-                text("""
-                    INSERT INTO stock_ledger
-                        (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by)
-                    VALUES (:sku, :action, :pieces, 1, :pieces, :reason_code, :reason, :updated_by)
-                """),
-                {
-                    "sku": sku, "action": action_type, "pieces": pieces,
-                    "reason_code": reason_code, "reason": reason, "updated_by": updated_by,
-                }
-            )
             # engine.begin() auto-commits on clean exit and rolls back on exception

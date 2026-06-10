@@ -4,6 +4,7 @@ Handles database creation, schema deployment, and data migration on application 
 """
 import os
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from src.infrastructure.database import get_engine, DB_PATH
 from src.infrastructure.migration_script import run_migration
 from src.infrastructure.config_rules import seed_default_excel_rules
@@ -49,16 +50,58 @@ def init_database():
         return False
 
 
+def _apply_column_migrations(engine):
+    """Apply additive ALTER TABLE column migrations idempotently.
+
+    Each statement is wrapped in its own try/except. SQLite raises when you
+    attempt to add a column that already exists; that exception is silently
+    ignored so this function is safe to call on every application startup.
+    """
+    migrations = [
+        (
+            "ALTER TABLE stock_ledger ADD COLUMN "
+            "reason_code VARCHAR(50) DEFAULT 'ADJUSTMENT'",
+            "stock_ledger.reason_code",
+        ),
+        (
+            "ALTER TABLE stock_ledger ADD COLUMN "
+            "updated_by VARCHAR(100) DEFAULT 'system'",
+            "stock_ledger.updated_by",
+        ),
+    ]
+    with engine.connect() as conn:
+        for sql, description in migrations:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+                logger.info(f"Migration applied: added {description}")
+            except OperationalError as e:
+                err_msg = str(e).lower()
+                if "duplicate column name" in err_msg:
+                    # Expected: column already exists from a previous run — safe to skip
+                    logger.debug(f"Migration skipped (already applied): {description}")
+                else:
+                    # Unexpected DB error (locked, corrupt, permission) — do not hide it
+                    logger.error(
+                        f"Migration FAILED for {description}: {e}",
+                        exc_info=True,
+                    )
+                    raise
+
+
 def _check_and_migrate_existing_db():
     """
     Check if existing database has necessary tables and data.
-    
+
     Returns:
         bool: True if database is ready, False if initialization failed
     """
     try:
         logger.debug("Checking existing database integrity...")
         engine = get_engine()
+
+        # Always run additive column migrations — idempotent on every startup
+        _apply_column_migrations(engine)
         
         with engine.connect() as conn:
             # Check core transactional tables

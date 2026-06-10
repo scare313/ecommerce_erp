@@ -50,10 +50,7 @@ def render():
             return
         
         # Organize into Tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📊 Current Balances", "➕ Update Stock",
-            "📜 Recent History", "📥 Bulk Update", "🔄 Transfer to Shop"
-        ])
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Current Balances", "➕ Update Stock", "📜 Recent History", "📥 Bulk Update"])
 
         # --- TAB 1: BALANCES ---
         with tab1:
@@ -72,119 +69,53 @@ def render():
                 logger.error(f"Error loading inventory balances: {str(e)}", exc_info=True)
                 st.error(f"Error loading inventory: {str(e)}")
 
-        # --- TAB 2: UPDATE STOCK ---
+        # --- TAB 2: UPDATE ---
         with tab2:
             try:
                 logger.debug("Loading inventory for update form...")
-                df_inv = service.get_inventory_status()
-
-                if df_inv.empty:
+                df_for_select = service.get_godown_inventory()
+                
+                if df_for_select.empty:
                     logger.warning("No inventory records found for update")
                     st.warning("No inventory records found. Please add stock first.")
                 else:
-                    REASON_CODES = {
-                        "Godown": {
-                            "ADD":    ["RECEIVED", "COUNT_CORRECTION", "ADJUSTMENT"],
-                            "REMOVE": ["SALE", "DAMAGED", "LOST", "COUNT_CORRECTION", "ADJUSTMENT"],
-                        },
-                        "Shop": {
-                            "ADD":    ["COUNT_CORRECTION", "RETURN", "ADJUSTMENT"],
-                            "REMOVE": ["SALE", "DAMAGED", "LOST", "COUNT_CORRECTION", "ADJUSTMENT"],
-                        },
-                    }
-
-                    # Location, Action, and SKU are ALL outside the form so that
-                    # changing any of them triggers an immediate rerender — keeping
-                    # the balance caption and default multiplier accurate before submit.
-                    c_loc, c_act, c_sku = st.columns(3)
-                    location = c_loc.selectbox(
-                        "Location", ["Godown", "Shop"], key="tab2_location"
-                    )
-                    action = c_act.selectbox(
-                        "Action", ["ADD", "REMOVE"], key="tab2_action"
-                    )
-                    sku = c_sku.selectbox(
-                        "Select SKU", df_inv['sku'].unique(), key="tab2_sku"
-                    )
-
-                    # current_row is now always computed from the live SKU selection
-                    current_row = df_inv[df_inv['sku'] == sku].iloc[0]
-
-                    if location == "Godown":
-                        current_godown = int(current_row['godown_stock_packs'])
-                        try:
-                            default_mult = int(current_row['multiplier'])
-                        except (ValueError, TypeError):
-                            logger.warning(f"Invalid multiplier for {sku}, using default")
-                            default_mult = 1
-
-                        st.caption(f"Current godown balance: **{current_godown} packs**")
-
-                        with st.form("godown_update_form"):
+                    with st.form("stock_form"):
+                        c1, c2 = st.columns(2)
+                        sku = c1.selectbox("Select SKU", df_for_select['sku'].unique())
+                        action = c2.selectbox("Action", ["ADD", "REMOVE"])
+                        
+                        # Fetch the multiplier this SKU "remembers"
+                        filtered_row = df_for_select[df_for_select['sku'] == sku]
+                        if filtered_row.empty:
+                            logger.error(f"SKU {sku} not found in inventory")
+                            st.error(f"SKU {sku} not found in inventory. Please select a valid SKU.")
+                        else:
+                            current_row = filtered_row.iloc[0]
+                            
+                            # Safely convert pack_multiplier with fallback
+                            try:
+                                default_mult = int(current_row['pack_multiplier'])
+                            except (ValueError, TypeError):
+                                logger.warning(f"Invalid pack_multiplier for {sku}, using default")
+                                default_mult = 1
+                                st.warning("Using default pack size of 1")
+                            
                             c3, c4 = st.columns(2)
                             num_packs = c3.number_input("Number of Packs", min_value=1, step=1)
-                            pack_size = c4.number_input(
-                                "Pieces per Pack", min_value=1, value=default_mult
-                            )
-                            reason_code = st.selectbox(
-                                "Reason", REASON_CODES["Godown"][action]
-                            )
-                            reason_note = st.text_input(
-                                "Notes (Optional)", placeholder="e.g. Invoice #1234"
-                            )
-
-                            if st.form_submit_button("Update Godown Stock"):
+                            pack_size = c4.number_input("Pieces per Pack (Multiplier)", min_value=1, value=default_mult)
+                            
+                            reason = st.text_input("Note / Reference (Optional)")
+                            
+                            if st.form_submit_button("Update Inventory"):
                                 try:
-                                    logger.info(
-                                        f"Updating godown: {sku} {action} {num_packs} packs"
-                                    )
-                                    service.manage_godown_stock(
-                                        sku, num_packs, pack_size, action,
-                                        reason_note, reason_code
-                                    )
-                                    clear_inventory_cache()
-                                    logger.info(f"Successfully updated godown for {sku}")
-                                    st.success(f"✅ {action} {num_packs} packs for {sku}")
+                                    logger.info(f"Updating inventory: {sku} {action} {num_packs} packs")
+                                    service.manage_godown_stock(sku, num_packs, pack_size, action, reason)
+                                    logger.info(f"Successfully updated inventory for {sku}")
+                                    st.success(f"Success: {action} {num_packs} packs for {sku}")
                                     st.rerun()
                                 except Exception as e:
-                                    logger.error(
-                                        f"Error updating godown: {str(e)}", exc_info=True
-                                    )
+                                    logger.error(f"Error updating inventory: {str(e)}", exc_info=True)
                                     st.error(f"Update failed: {str(e)}")
-
-                    else:  # Shop
-                        current_shop = int(current_row['shop_stock_pieces'])
-                        st.caption(f"Current shop balance: **{current_shop} pieces**")
-
-                        with st.form("shop_update_form"):
-                            num_pieces = st.number_input("Number of Pieces", min_value=1, step=1)
-                            reason_code = st.selectbox(
-                                "Reason", REASON_CODES["Shop"][action]
-                            )
-                            reason_note = st.text_input(
-                                "Notes (Optional)", placeholder="e.g. Damaged in store"
-                            )
-
-                            if st.form_submit_button("Update Shop Stock"):
-                                try:
-                                    logger.info(
-                                        f"Updating shop: {sku} {action} {num_pieces} pieces"
-                                    )
-                                    service.manage_shop_stock(
-                                        sku, num_pieces, action, reason_code, reason_note
-                                    )
-                                    clear_inventory_cache()
-                                    logger.info(f"Successfully updated shop for {sku}")
-                                    st.success(
-                                        f"✅ {action} {num_pieces} pieces for {sku} (Shop)"
-                                    )
-                                    st.rerun()
-                                except Exception as e:
-                                    logger.error(
-                                        f"Error updating shop: {str(e)}", exc_info=True
-                                    )
-                                    st.error(f"Update failed: {str(e)}")
-
             except Exception as e:
                 logger.error(f"Error in inventory update tab: {str(e)}", exc_info=True)
                 st.error(f"Error loading inventory: {str(e)}")
@@ -331,11 +262,9 @@ def render():
                                                         text("""
                                                             INSERT INTO stock_ledger
                                                                 (sku, transaction_type, packs, multiplier,
-                                                                 total_pieces_affected, reason_code,
-                                                                 reason, updated_by)
+                                                                 total_pieces_affected, reason)
                                                             VALUES
-                                                                (:sku, 'STOCK_TAKE', :packs, :mult, :total,
-                                                                 'STOCK_TAKE', :reason, 'bulk_import')
+                                                                (:sku, 'STOCK_TAKE', :packs, :mult, :total, :reason)
                                                         """),
                                                         {
                                                             "sku":    sku_val,
@@ -428,77 +357,6 @@ def render():
                 logger.warning(f"Template generation warning: {str(e)}")
                 st.info(f"Template generation: {str(e)}")
                 
-        # --- TAB 5: TRANSFER TO SHOP ---
-        with tab5:
-            try:
-                logger.debug("Loading godown inventory for transfer form...")
-                df_godown = service.get_godown_inventory()
-                df_godown = df_godown[df_godown['godown_stock_packs'] > 0]
-
-                if df_godown.empty:
-                    st.info("No godown stock available to transfer.")
-                else:
-                    # SKU selectbox is outside the form so changing it triggers an
-                    # immediate rerender — keeping current_godown_packs and
-                    # default_mult accurate and max_value correct before submit.
-                    transfer_sku = st.selectbox(
-                        "Select SKU (Godown stock only)",
-                        df_godown['sku'].unique(),
-                        key="tab5_transfer_sku",
-                    )
-
-                    godown_row = df_godown[df_godown['sku'] == transfer_sku].iloc[0]
-                    current_godown_packs = int(godown_row['godown_stock_packs'])
-                    try:
-                        default_mult = int(godown_row['pack_multiplier'])
-                    except (ValueError, TypeError):
-                        default_mult = 1
-
-                    st.caption(f"Godown balance: **{current_godown_packs} packs**")
-
-                    with st.form("transfer_form"):
-                        c1, c2 = st.columns(2)
-                        transfer_packs = c1.number_input(
-                            "Packs to Transfer",
-                            min_value=1,
-                            max_value=current_godown_packs,
-                            step=1,
-                        )
-                        pack_size = c2.number_input(
-                            "Pieces per Pack",
-                            min_value=1,
-                            value=default_mult,
-                        )
-
-                        if st.form_submit_button("Transfer to Shop"):
-                            try:
-                                logger.info(
-                                    f"Transferring {transfer_packs} packs of {transfer_sku} "
-                                    f"to shop (multiplier {pack_size})"
-                                )
-                                service.transfer_to_shop(transfer_sku, transfer_packs, pack_size)
-                                clear_inventory_cache()
-                                logger.info(
-                                    f"Transfer complete: {transfer_sku} "
-                                    f"{transfer_packs} packs → shop"
-                                )
-                                st.success(
-                                    f"✅ Transferred {transfer_packs} packs "
-                                    f"({transfer_packs * pack_size} pieces) of "
-                                    f"{transfer_sku} to shop."
-                                )
-                                st.rerun()
-                            except Exception as e:
-                                logger.error(
-                                    f"Transfer failed for {transfer_sku}: {str(e)}",
-                                    exc_info=True,
-                                )
-                                st.error(f"Transfer failed: {str(e)}")
-
-            except Exception as e:
-                logger.error(f"Error in transfer tab: {str(e)}", exc_info=True)
-                st.error(f"Error loading transfer form: {str(e)}")
-
     except Exception as e:
         logger.error(f"Critical error in Inventory Manager render: {str(e)}", exc_info=True)
         st.error(f"Critical error: {e}")
