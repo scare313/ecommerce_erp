@@ -152,7 +152,7 @@ def run_migration():
             if df is not None:
                 df = clean_column_names(df)
                 rename_map = {
-                    'master_sku': 'sku', 'suppier_code': 'supplier_code', 
+                    'master_sku': 'sku',
                     'unit_box_cost': 'packaging_cost', 'mfg_cost': 'mfg_cost',
                     'labeling_labor': 'labeling_labor', 'inbound_transport': 'inbound_transport',
                     'total_unit_cogs': 'total_unit_cogs'
@@ -322,7 +322,7 @@ if __name__ == "__main__":
         if df is not None:
             df = clean_column_names(df)
             rename_map = {
-                'master_sku': 'sku', 'suppier_code': 'supplier_code', 
+                'master_sku': 'sku',
                 'unit_box_cost': 'packaging_cost', 'mfg_cost': 'mfg_cost',
                 'labeling_labor': 'labeling_labor', 'inbound_transport': 'inbound_transport',
                 'total_unit_cogs': 'total_unit_cogs'
