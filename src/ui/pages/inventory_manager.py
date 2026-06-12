@@ -657,7 +657,7 @@ def _render_standard_mode(service: InventoryService):
 def render():
     """Render the Inventory Manager page.
 
-    The sidebar toggle "🏭 Godown Mode" switches between:
+    A mode-switcher banner at the top of the page lets users switch between:
     - Standard Mode: full tabbed desktop interface
     - Godown Mode: streamlined scan-and-update mobile interface
     """
@@ -673,21 +673,78 @@ def render():
             st.error(f"Failed to initialize service: {str(e)}")
             return
 
-        # ── Sidebar — Godown Mode toggle ──────────────────────────────────────
+        # ── Mode switcher — prominent banner on the page body ─────────────────
+        # Also keep sidebar toggle for convenience on desktop
         st.sidebar.divider()
-        godown_mode = st.sidebar.toggle(
+        st.sidebar.toggle(
             "🏭 Godown Mode",
             value=st.session_state.get("godown_mode_active", False),
-            key="godown_mode_active",
-            help=(
-                "Activates a barcode-scan-first mobile UI.\n\n"
-                "• Use with a USB/Bluetooth hardware scanner, or\n"
-                "• Use your phone camera to scan barcodes."
-            ),
+            key="_sidebar_godown_sync",
+            help="Switch to barcode scan-first mobile UI",
         )
+        # Sync sidebar toggle → session state
+        if "_sidebar_godown_sync" in st.session_state:
+            st.session_state["godown_mode_active"] = st.session_state["_sidebar_godown_sync"]
+
+        godown_mode = st.session_state.get("godown_mode_active", False)
+
+        # ── Big visible mode switcher on the main page ────────────────────────
+        st.markdown("""
+        <style>
+        .mode-banner {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .mode-btn {
+            flex: 1;
+            min-width: 160px;
+            padding: 16px 20px;
+            border-radius: 14px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            text-align: center;
+            font-size: 1rem;
+            font-weight: 700;
+            transition: all 0.2s ease;
+        }
+        .mode-btn-active {
+            background: linear-gradient(135deg, #1e3a5f, #0f2a45);
+            border-color: #63b3ed;
+            color: #93c5fd;
+        }
+        .mode-btn-inactive {
+            background: rgba(255,255,255,0.04);
+            border-color: rgba(255,255,255,0.1);
+            color: #64748b;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        col_std, col_gdn = st.columns(2)
+        with col_std:
+            if st.button(
+                "🖥️  Standard Mode\n\nFull desktop view with all tabs",
+                key="btn_standard_mode",
+                use_container_width=True,
+                type="primary" if not godown_mode else "secondary",
+            ):
+                st.session_state["godown_mode_active"] = False
+                st.rerun()
+        with col_gdn:
+            if st.button(
+                "📱  Godown Mode\n\nScan barcodes — hardware or camera",
+                key="btn_godown_mode",
+                use_container_width=True,
+                type="primary" if godown_mode else "secondary",
+            ):
+                st.session_state["godown_mode_active"] = True
+                st.rerun()
+
+        st.divider()
 
         if godown_mode:
-            st.sidebar.success("📱 Godown Mode ON — optimised for scanning")
             _render_godown_mode(service)
         else:
             _render_standard_mode(service)
