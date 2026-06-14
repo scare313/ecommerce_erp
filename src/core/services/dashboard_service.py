@@ -175,8 +175,16 @@ class DashboardService:
                     text("SELECT COUNT(*) FROM inventory_master WHERE godown_stock_packs <= 0")
                 ).scalar() or 0
 
+                # Low stock now uses the per-SKU reorder_point (Roadmap 1.3.3).
+                # Only SKUs with a configured reorder_point (> 0) are evaluated;
+                # out-of-stock SKUs are excluded so the two metrics don't overlap.
                 low_stock = conn.execute(
-                    text("SELECT COUNT(*) FROM inventory_master WHERE godown_stock_packs > 0 AND godown_stock_packs < 5")
+                    text(
+                        "SELECT COUNT(*) FROM inventory_master "
+                        "WHERE reorder_point > 0 "
+                        "AND godown_stock_packs > 0 "
+                        "AND godown_stock_packs <= reorder_point"
+                    )
                 ).scalar() or 0
 
             summary = {

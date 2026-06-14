@@ -2,345 +2,253 @@
 
 Provides two scanning modes:
 1. Hardware Scanner: Reads keyboard-emulated input from USB/Bluetooth barcode scanners.
-2. Camera Scanner: Injects Html5-QRCode JS library to use phone/webcam for scanning.
+2. Camera Scanner: Uses the Html5-QRCode JS library rendered via
+   streamlit.components.v1.html (an HTML srcdoc iframe).
 
-The camera component writes the scanned result back to Streamlit via
-st.query_params so the page can react to it without a full-page reload.
+Camera UX flow (zero extra steps):
+  - Camera auto-starts on load
+  - On successful scan: beeps, stops camera, auto-fills the parent Streamlit
+    text input, dispatches Enter key -> Streamlit reruns automatically
+  - After "Add to Queue": scan_counter increments -> iframe recreated -> camera
+    auto-restarts
+
+Secure-context requirement:
+  Browser camera access (getUserMedia) only works on a secure context —
+  https:// or http://localhost. Opening the app over a plain-HTTP LAN address
+  (e.g. http://192.168.x.x:8501) on a phone will silently block the camera.
+  Use HTTPS or a tunnel for phone scanning. Hardware-scanner mode has no such
+  requirement and works everywhere.
+
+Input clearing is handled by the caller via a counter-based widget key —
+do NOT set st.session_state[key] inside this component.
 """
 import streamlit as st
-import streamlit.components.v1 as components
+from streamlit.components.v1 import html as components_html
 
 # ──────────────────────────────────────────────────────────────────────────────
-# HTML / JS for the Camera Scanner using the html5-qrcode library
+# Camera Scanner HTML  (auto-start + auto-confirm, no manual steps)
 # ──────────────────────────────────────────────────────────────────────────────
-_CAMERA_SCANNER_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Barcode Scanner</title>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: transparent;
-    }
-
-    #scanner-wrapper {
-      border-radius: 16px;
-      overflow: hidden;
-      background: #0f1117;
-      border: 1px solid rgba(255,255,255,0.08);
-    }
-
-    #reader {
-      width: 100%;
-      border-radius: 12px;
-      overflow: hidden;
-    }
-
-    /* Override html5-qrcode default styles */
-    #reader video {
-      border-radius: 12px !important;
-    }
-
-    #reader__scan_region img {
-      display: none !important;
-    }
-
-    #scanner-controls {
-      padding: 12px 16px;
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    button {
-      flex: 1;
-      padding: 10px 18px;
-      border: none;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      min-width: 120px;
-    }
-
-    #startBtn {
-      background: linear-gradient(135deg, #4ade80, #16a34a);
-      color: #0f2e1a;
-    }
-    #startBtn:hover { opacity: 0.9; transform: scale(1.02); }
-
-    #stopBtn {
-      background: linear-gradient(135deg, #f87171, #dc2626);
-      color: white;
-      display: none;
-    }
-    #stopBtn:hover { opacity: 0.9; transform: scale(1.02); }
-
-    #result-box {
-      margin: 0 16px 12px;
-      padding: 12px 16px;
-      border-radius: 10px;
-      background: rgba(74, 222, 128, 0.1);
-      border: 1px solid rgba(74, 222, 128, 0.3);
-      display: none;
-    }
-
-    #result-label {
-      font-size: 11px;
-      color: #4ade80;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      font-weight: 600;
-    }
-
-    #result-value {
-      font-size: 18px;
-      font-weight: 700;
-      color: #ffffff;
-      margin-top: 4px;
-      font-family: 'Courier New', monospace;
-      word-break: break-all;
-    }
-
-    #status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #6b7280;
-      display: inline-block;
-      margin-right: 6px;
-      transition: background 0.3s;
-    }
-
-    #status-dot.active {
-      background: #4ade80;
-      box-shadow: 0 0 6px #4ade80;
-      animation: pulse 1.5s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-
-    #status-text {
-      font-size: 13px;
-      color: #9ca3af;
-    }
-
-    #confirm-btn {
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-      color: white;
-      width: calc(100% - 32px);
-      margin: 0 16px 16px;
-      display: none;
-      padding: 12px;
-      font-size: 15px;
-    }
-    #confirm-btn:hover { opacity: 0.9; transform: scale(1.01); }
-  </style>
-</head>
-<body>
-  <div id="scanner-wrapper">
-    <div id="reader"></div>
-
-    <div id="scanner-controls">
-      <span id="status-dot"></span>
-      <span id="status-text">Camera off</span>
-      <button id="startBtn" onclick="startScanner()">📷 Start Camera</button>
-      <button id="stopBtn"  onclick="stopScanner()">⏹ Stop</button>
-    </div>
-
-    <div id="result-box">
-      <div id="result-label">✅ Scanned Barcode</div>
-      <div id="result-value">–</div>
-    </div>
-
-    <button id="confirm-btn" onclick="confirmScan()">
-      ✔ Use This SKU
-    </button>
-  </div>
-
-  <script>
-    let html5QrCode = null;
-    let lastScanned = "";
-
-    function startScanner() {
-      document.getElementById('startBtn').style.display = 'none';
-      document.getElementById('stopBtn').style.display  = 'flex';
-      document.getElementById('status-dot').classList.add('active');
-      document.getElementById('status-text').textContent = 'Scanning…';
-
-      html5QrCode = new Html5Qrcode("reader");
-
-      Html5Qrcode.getCameras().then(cameras => {
-        if (!cameras || cameras.length === 0) {
-          setStatus('No camera found.', false);
-          return;
-        }
-        // Prefer rear/environment camera on phones
-        const cam = cameras.find(c =>
-          c.label.toLowerCase().includes('back') ||
-          c.label.toLowerCase().includes('rear') ||
-          c.label.toLowerCase().includes('environment')
-        ) || cameras[cameras.length - 1];
-
-        const config = {
-          fps: 10,
-          qrbox: { width: 260, height: 180 },
-          aspectRatio: 1.7,
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.QR_CODE,
-          ]
-        };
-
-        html5QrCode.start(cam.id, config, onScanSuccess, onScanError)
-          .catch(err => setStatus('Camera error: ' + err, false));
-      }).catch(err => {
-        setStatus('Camera access denied. Please allow camera permission.', false);
-      });
-    }
-
-    function stopScanner() {
-      if (html5QrCode) {
-        html5QrCode.stop().then(() => {
-          document.getElementById('startBtn').style.display = 'flex';
-          document.getElementById('stopBtn').style.display  = 'none';
-          document.getElementById('status-dot').classList.remove('active');
-          document.getElementById('status-text').textContent = 'Camera off';
-        });
-      }
-    }
-
-    function onScanSuccess(decodedText) {
-      if (decodedText === lastScanned) return;
-      lastScanned = decodedText;
-
-      // Play a subtle beep
-      try {
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.25);
-      } catch(e) {}
-
-      // Show result
-      document.getElementById('result-box').style.display = 'block';
-      document.getElementById('result-value').textContent = decodedText;
-      document.getElementById('confirm-btn').style.display = 'block';
-      setStatus('Barcode detected!', true);
-    }
-
-    function onScanError(error) {
-      // Suppress noisy frame errors
-    }
-
-    function confirmScan() {
-      // Post the scanned value to the Streamlit parent frame
-      window.parent.postMessage({
-        type: 'barcode_scan',
-        value: lastScanned
-      }, '*');
-    }
-
-    function setStatus(msg, active) {
-      const dot = document.getElementById('status-dot');
-      const txt = document.getElementById('status-text');
-      txt.textContent = msg;
-      if (active) dot.classList.add('active');
-      else dot.classList.remove('active');
-    }
-  </script>
-</body>
-</html>
+_CSS = """
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Inter',sans-serif; background:transparent; }
+#wrap { border-radius:16px; overflow:hidden; background:#0f1117; border:1px solid rgba(255,255,255,0.08); }
+#reader { width:100%; }
+#reader video { border-radius:12px !important; }
+#reader__scan_region img { display:none !important; }
+#controls { padding:10px 14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.btn { flex:1; padding:9px 16px; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; transition:all .2s; min-width:110px; }
+#stopBtn  { background:linear-gradient(135deg,#f87171,#dc2626); color:#fff; }
+#startBtn { background:linear-gradient(135deg,#4ade80,#16a34a); color:#0f2e1a; display:none; }
+#dot { width:9px; height:9px; border-radius:50%; background:#6b7280; display:inline-block; margin-right:6px; transition:background .3s; }
+#dot.on  { background:#4ade80; box-shadow:0 0 6px #4ade80; animation:pulse 1.5s infinite; }
+#dot.ok  { background:#4ade80; box-shadow:0 0 6px #4ade80; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+#lbl { font-size:13px; color:#9ca3af; flex:1; }
+#result { margin:0 14px 10px; padding:11px 14px; border-radius:10px; background:rgba(74,222,128,.1); border:1px solid rgba(74,222,128,.3); display:none; }
+#r-tag  { font-size:10px; color:#4ade80; text-transform:uppercase; letter-spacing:1px; font-weight:700; }
+#r-val  { font-size:17px; font-weight:700; color:#fff; margin-top:3px; font-family:'Courier New',monospace; word-break:break-all; }
+#r-hint { font-size:11px; color:#6b7280; margin-top:5px; }
+#err { margin:0 14px 10px; padding:11px 14px; border-radius:10px; background:rgba(248,113,113,.1); border:1px solid rgba(248,113,113,.3); color:#fca5a5; font-size:12px; display:none; }
 """
 
+_JS = """
+let qr = null, scanning = false, last = '';
 
-def render_camera_scanner(height: int = 460) -> None:
-    """Render the camera-based barcode scanner component.
+window.addEventListener('load', () => setTimeout(start, 500));
 
-    The scanned barcode is written to ``st.session_state.camera_scan_result``
-    via a hidden text_input that listens for postMessage events from the iframe.
+function secureOk() {
+  // getUserMedia requires https or localhost. Surface a clear message otherwise.
+  if (window.isSecureContext) return true;
+  const h = location.hostname;
+  return h === 'localhost' || h === '127.0.0.1';
+}
+
+function start() {
+  if (scanning) return;
+  if (!secureOk()) {
+    showErr('Camera needs HTTPS or localhost. Open the app over https:// '
+          + 'to scan with this device camera, or use a hardware scanner.');
+    setStatus('Camera unavailable', '');
+    return;
+  }
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('stopBtn').style.display  = 'flex';
+  document.getElementById('result').style.display   = 'none';
+  document.getElementById('err').style.display      = 'none';
+  setStatus('Scanning…', 'on');
+  last = '';
+  qr = new Html5Qrcode('reader');
+  Html5Qrcode.getCameras().then(cams => {
+    if (!cams || !cams.length) { setStatus('No camera found.', ''); return; }
+    const cam = cams.find(c =>
+      /back|rear|environment/i.test(c.label)
+    ) || cams[cams.length - 1];
+    qr.start(cam.id, {
+      fps: 10,
+      qrbox: { width:240, height:160 },
+      aspectRatio: 1.5,
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.QR_CODE,
+      ]
+    }, onScan, () => {}).then(() => scanning = true)
+      .catch(e => { setStatus('Camera error', ''); showErr('Camera error: ' + e); });
+  }).catch(() => {
+    setStatus('Camera access denied', '');
+    showErr('Camera access denied — tap "Allow" in the browser prompt, '
+          + 'then tap Restart.');
+  });
+}
+
+function stop() {
+  if (!qr || !scanning) return;
+  qr.stop().then(() => {
+    scanning = false;
+    document.getElementById('stopBtn').style.display  = 'none';
+    document.getElementById('startBtn').style.display = 'flex';
+    setStatus('Camera off', '');
+  }).catch(() => {});
+}
+
+function onScan(text) {
+  if (text === last || !scanning) return;
+  last = text;
+  beep();
+  document.getElementById('result').style.display = 'block';
+  document.getElementById('r-val').textContent  = text;
+  document.getElementById('r-hint').textContent = 'Filling details…';
+  setStatus('Got it!', 'ok');
+  stop();
+  setTimeout(() => pushToStreamlit(text), 400);
+}
+
+function pushToStreamlit(value) {
+  try {
+    const doc = window.parent.document;
+    // Find the bridge input — placeholder contains "waiting"
+    const inputs = [...doc.querySelectorAll('input[type="text"]')];
+    const inp = inputs.find(i => i.placeholder && /waiting/i.test(i.placeholder))
+             || inputs[inputs.length - 1];
+    if (!inp) { hint('Input not found — type SKU manually.'); return; }
+    // Use React native setter
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    setter.set.call(inp, value);
+    inp.dispatchEvent(new Event('input',  { bubbles:true }));
+    inp.dispatchEvent(new Event('change', { bubbles:true }));
+    // Press Enter to trigger Streamlit rerun
+    inp.focus();
+    ['keydown','keypress','keyup'].forEach(t =>
+      inp.dispatchEvent(new KeyboardEvent(t, { key:'Enter', keyCode:13, bubbles:true }))
+    );
+    setTimeout(() => inp.blur(), 120);
+    hint('Product found — fill details below ↓');
+  } catch(e) { hint('Auto-fill blocked — type the SKU manually.'); }
+}
+
+function beep() {
+  try {
+    const c = new AudioContext(), o = c.createOscillator(), g = c.createGain();
+    o.connect(g); g.connect(c.destination);
+    o.type = 'sine'; o.frequency.value = 920;
+    g.gain.setValueAtTime(.3, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, c.currentTime + .2);
+    o.start(c.currentTime); o.stop(c.currentTime + .2);
+  } catch(e) {}
+}
+
+function setStatus(msg, dotClass) {
+  document.getElementById('lbl').textContent = msg;
+  const d = document.getElementById('dot');
+  d.className = dotClass;
+}
+
+function showErr(msg) {
+  const e = document.getElementById('err');
+  e.textContent = msg;
+  e.style.display = 'block';
+}
+
+function hint(msg) { document.getElementById('r-hint').textContent = msg; }
+"""
+
+_CAMERA_SCANNER_HTML = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>{_CSS}</style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="reader"></div>
+    <div id="controls">
+      <span id="dot"></span>
+      <span id="lbl">Starting camera&hellip;</span>
+      <button class="btn" id="stopBtn"  onclick="stop()">&#9646; Stop</button>
+      <button class="btn" id="startBtn" onclick="start()">&#128247; Restart</button>
+    </div>
+    <div id="result">
+      <div id="r-tag">&#10003; Scanned</div>
+      <div id="r-val">&ndash;</div>
+      <div id="r-hint">Loading&hellip;</div>
+    </div>
+    <div id="err"></div>
+  </div>
+  <script>{_JS}</script>
+</body>
+</html>"""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_camera_scanner(height: int = 420) -> None:
+    """Render the auto-starting camera barcode scanner.
+
+    Uses streamlit.components.v1.html (NOT st.iframe — that expects a URL src,
+    not an HTML string). The HTML is rendered in a same-origin srcdoc iframe so
+    the auto-fill bridge can reach the parent Streamlit input, and so the camera
+    inherits the page's camera permission on a secure context.
+
+    - Camera starts automatically on load.
+    - On a successful scan: beeps, stops the camera, auto-fills the nearest
+      Streamlit text input in the parent page, and dispatches Enter to trigger
+      an immediate Streamlit rerun.
+    - After Add to Queue (scan_counter increments), the iframe is recreated and
+      the camera auto-restarts for the next item.
 
     Args:
-        height: Height of the iframe in pixels (default 460).
+        height: iframe height in pixels.
     """
-    # ── Listener JS that bridges iframe → Streamlit session_state ────────────
-    listener_html = """
-    <script>
-    window.addEventListener('message', function(event) {
-      if (event.data && event.data.type === 'barcode_scan') {
-        const val = event.data.value;
-        // Write value into the hidden Streamlit text input
-        const inputs = window.parent.document.querySelectorAll('input[data-testid="stTextInput"]');
-        for (const inp of inputs) {
-          if (inp.id && inp.id.includes('barcode_receiver')) {
-            inp.value = val;
-            inp.dispatchEvent(new Event('input', { bubbles: true }));
-            inp.dispatchEvent(new Event('change', { bubbles: true }));
-            break;
-          }
-        }
-        // Fallback: set on the first available hidden input with our marker attr
-        const marker = window.parent.document.querySelector('[data-barcode-receiver]');
-        if (marker) {
-          marker.value = val;
-          marker.dispatchEvent(new Event('input', { bubbles: true }));
-          marker.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }
-    });
-    </script>
-    """
-    components.html(_CAMERA_SCANNER_HTML, height=height, scrolling=False)
-    components.html(listener_html, height=0)
+    components_html(_CAMERA_SCANNER_HTML, height=height, scrolling=False)
 
 
-def render_hardware_scanner_input(label: str = "🔍 Scan or type SKU", key: str = "hw_scan_input") -> str:
-    """Render a text input optimised for hardware barcode scanners.
+def render_hardware_scanner_input(label: str = "Scan or type SKU", key: str = "hw_scan_input") -> str:
+    """Render a text input for USB/Bluetooth hardware barcode scanners.
 
-    Hardware scanners emulate a keyboard and send the barcode string followed
-    by an Enter key press, so a standard st.text_input captures it perfectly.
-    This function wraps the input with a clear button and helpful styling.
+    Hardware scanners emulate a keyboard — they type the barcode + Enter.
+    Clearing is handled by the caller via a counter-based key; this function
+    never modifies session_state directly.
 
     Args:
-        label: Label to display above the input.
+        label: Input label.
         key:   Unique Streamlit widget key.
 
     Returns:
-        str: The current value of the input (stripped and uppercased).
+        str: Current input value, stripped and uppercased.
     """
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        val = st.text_input(
-            label,
-            key=key,
-            placeholder="Point scanner at barcode, or type SKU manually…",
-            help="Hardware scanners send the barcode automatically. Press Enter to confirm.",
-        )
-    with col2:
-        st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
-        if st.button("✖ Clear", key=f"{key}_clear", use_container_width=True):
-            st.session_state[key] = ""
-            st.rerun()
+    val = st.text_input(
+        label,
+        key=key,
+        placeholder="Point scanner at barcode, or type SKU and press Enter…",
+        help="Hardware scanners send barcode + Enter automatically.",
+        autocomplete="off",
+    )
     return (val or "").strip().upper()

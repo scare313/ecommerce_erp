@@ -214,6 +214,118 @@ def _enable_foreign_keys_if_clean(engine):
     logger.info("Foreign key enforcement enabled.")
 
 
+def _deprecate_product_master_stock_columns(engine):
+    """Migrate and remove the orphaned product_master stock columns.
+
+    product_master.godown_stock_packs and product_master.shop_stock_pieces were
+    added via ALTER TABLE in an earlier schema and duplicate the fields owned by
+    inventory_master. All service code reads/writes inventory_master — these
+    columns are a stale second source of truth. (Roadmap Sprint 1.3.4.)
+
+    One-time, guarded by a schema_migrations row. Steps:
+      1. Copy any non-zero legacy value into inventory_master ONLY where the
+         canonical value is currently 0/missing — never clobber good data.
+      2. Drop the columns. If the SQLite build does not support DROP COLUMN,
+         fall back to zeroing them so they can no longer mislead.
+    Safe on databases where the columns are already absent (fresh installs).
+    """
+    migration_name = 'deprecate_product_master_stock_v1'
+
+    with engine.connect() as conn:
+        already = conn.execute(
+            text("SELECT COUNT(*) FROM schema_migrations WHERE migration_name = :n"),
+            {"n": migration_name},
+        ).scalar()
+    if already:
+        logger.debug("product_master stock deprecation already applied — skipping")
+        return
+
+    # Detect whether the orphaned columns still exist on this database.
+    with engine.connect() as conn:
+        cols = [r[1] for r in conn.execute(text("PRAGMA table_info(product_master)")).fetchall()]
+    has_godown = 'godown_stock_packs' in cols
+    has_shop = 'shop_stock_pieces' in cols
+
+    logger.info(
+        "Running one-time migration: deprecate orphaned product_master stock columns "
+        f"(godown present={has_godown}, shop present={has_shop})"
+    )
+
+    try:
+        with engine.begin() as conn:
+            if has_godown or has_shop:
+                # Ensure inventory rows exist for any product carrying legacy stock.
+                conditions = []
+                if has_godown:
+                    conditions.append("COALESCE(godown_stock_packs, 0) <> 0")
+                if has_shop:
+                    conditions.append("COALESCE(shop_stock_pieces, 0) <> 0")
+                conn.execute(text(
+                    "INSERT OR IGNORE INTO inventory_master (sku) "
+                    "SELECT sku FROM product_master WHERE " + " OR ".join(conditions)
+                ))
+
+            if has_godown:
+                # Copy legacy godown packs only where canonical value is 0/missing.
+                conn.execute(text("""
+                    UPDATE inventory_master
+                    SET godown_stock_packs = (
+                        SELECT p.godown_stock_packs FROM product_master p
+                        WHERE p.sku = inventory_master.sku
+                    )
+                    WHERE COALESCE(godown_stock_packs, 0) = 0
+                      AND (
+                          SELECT COALESCE(p.godown_stock_packs, 0) FROM product_master p
+                          WHERE p.sku = inventory_master.sku
+                      ) <> 0
+                """))
+
+            if has_shop:
+                conn.execute(text("""
+                    UPDATE inventory_master
+                    SET shop_stock_pieces = (
+                        SELECT p.shop_stock_pieces FROM product_master p
+                        WHERE p.sku = inventory_master.sku
+                    )
+                    WHERE COALESCE(shop_stock_pieces, 0) = 0
+                      AND (
+                          SELECT COALESCE(p.shop_stock_pieces, 0) FROM product_master p
+                          WHERE p.sku = inventory_master.sku
+                      ) <> 0
+                """))
+
+            # Mark complete once the data has been safely copied. The physical
+            # column drop below is best-effort cleanup and must not re-trigger
+            # this copy if it fails.
+            conn.execute(
+                text("INSERT OR IGNORE INTO schema_migrations (migration_name) VALUES (:n)"),
+                {"n": migration_name},
+            )
+        logger.info("✅ Legacy product_master stock values migrated into inventory_master.")
+    except Exception as e:
+        logger.error(f"product_master stock deprecation (copy step) failed: {e}", exc_info=True)
+        raise
+
+    # Best-effort physical removal of the orphaned columns.
+    for colname, present in (("godown_stock_packs", has_godown), ("shop_stock_pieces", has_shop)):
+        if not present:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE product_master DROP COLUMN {colname}"))
+            logger.info(f"Dropped orphaned column product_master.{colname}")
+        except Exception as e:
+            logger.warning(
+                f"Could not DROP product_master.{colname} ({e}); "
+                "zeroing the column instead so it cannot mislead."
+            )
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"UPDATE product_master SET {colname} = 0"))
+            except Exception as zero_err:
+                logger.warning(f"Could not zero product_master.{colname}: {zero_err}")
+
+
 def _apply_column_migrations(engine):
     """Apply additive ALTER TABLE column migrations idempotently.
 
@@ -236,6 +348,21 @@ def _apply_column_migrations(engine):
             "ALTER TABLE product_master ADD COLUMN "
             "supplier_product_code VARCHAR(100)",
             "product_master.supplier_product_code",
+        ),
+        (
+            "ALTER TABLE inventory_master ADD COLUMN "
+            "reorder_point INT DEFAULT 0",
+            "inventory_master.reorder_point",
+        ),
+        (
+            "ALTER TABLE inventory_master ADD COLUMN "
+            "reorder_qty INT DEFAULT 0",
+            "inventory_master.reorder_qty",
+        ),
+        (
+            "ALTER TABLE stock_ledger ADD COLUMN "
+            "running_balance INT",
+            "stock_ledger.running_balance",
         ),
     ]
     with engine.connect() as conn:
@@ -278,7 +405,10 @@ def _check_and_migrate_existing_db():
         # 3. One-time supplier master seed from existing product_master data
         _seed_supplier_master_from_products(engine)
 
-        # 4. Enable FK enforcement if all supplier_code references are clean
+        # 4. One-time deprecation of orphaned product_master stock columns
+        _deprecate_product_master_stock_columns(engine)
+
+        # 5. Enable FK enforcement if all supplier_code references are clean
         _enable_foreign_keys_if_clean(engine)
 
         with engine.connect() as conn:

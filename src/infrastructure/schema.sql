@@ -89,9 +89,11 @@ CREATE TABLE channel_listings (
     PRIMARY KEY (channel_sku, marketplace)
 );
 
--- Track current balances at the Product level
-ALTER TABLE product_master ADD COLUMN godown_stock_packs INT DEFAULT 0;
-ALTER TABLE product_master ADD COLUMN shop_stock_pieces INT DEFAULT 0;
+-- NOTE: product_master.godown_stock_packs / shop_stock_pieces were historically
+-- added here via ALTER TABLE but are orphaned — all inventory tracking lives in
+-- inventory_master. The columns are removed from the schema and dropped from
+-- existing databases by the one-time deprecate_product_master_stock_v1 migration
+-- (see init_db.py). Do not reintroduce them.
 
 -- Updated dedicated Inventory table
 CREATE TABLE IF NOT EXISTS inventory_master (
@@ -99,6 +101,8 @@ CREATE TABLE IF NOT EXISTS inventory_master (
     godown_stock_packs INT DEFAULT 0,
     shop_stock_pieces INT DEFAULT 0,
     pack_multiplier INT DEFAULT 1, -- Remembers the pieces-per-pack for this SKU
+    reorder_point INT DEFAULT 0,   -- Low-stock threshold in packs (0 = not configured)
+    reorder_qty INT DEFAULT 0,     -- Suggested reorder quantity in packs
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -113,5 +117,6 @@ CREATE TABLE IF NOT EXISTS stock_ledger (
     reason_code VARCHAR(50) DEFAULT 'ADJUSTMENT', -- Structured reason (RECEIVED, SALE, DAMAGED, etc.)
     reason TEXT,                        -- Optional freetext notes
     updated_by VARCHAR(100) DEFAULT 'system',     -- Username for audit trail
+    running_balance INT,                -- godown_stock_packs balance immediately AFTER this row (NULL for pre-migration history)
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );

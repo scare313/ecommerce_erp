@@ -52,3 +52,11 @@ htmlcov/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Temp files created by editor/Claude Code
+*.tmp.*
+src/ui/pages/*.tmp.*
+src/core/services/*.tmp.*
+
+# Logs (runtime generated, not source code)
+src/logs/*.log
