@@ -1,19 +1,111 @@
+"""ERP Application Entry Point.
+
+Initializes database and renders Streamlit UI with navigation to multiple dashboards.
+"""
+import sys
+from pathlib import Path
+
 import streamlit as st
 
-st.set_page_config(page_title="Ecommerce ERP", layout="wide")
+project_root = Path(__file__).parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Profit Dashboard", "Gap Analysis", "Demand Planner", "Data Manager"])
+from src.infrastructure.init_db import init_database
+from src.infrastructure.logger import get_logger
 
-if page == "Profit Dashboard":
-    from src.ui.pages import profit_dashboard
-    profit_dashboard.render()
-elif page == "Gap Analysis":
-    from src.ui.pages import gap_dashboard
-    gap_dashboard.render()
-elif page == "Demand Planner": # NEW
-    from src.ui.pages import demand_planner
-    demand_planner.render()
-elif page == "Data Manager":
-    from src.ui.pages import data_manager
-    data_manager.render()
+logger = get_logger(__name__)
+
+try:
+    logger.info("Starting ERP Application...")
+    
+    if not st.session_state.get("db_initialized"):
+        try:
+            success = init_database()
+            if success:
+                st.session_state.db_initialized = True
+                logger.info("✅ Database initialized successfully")
+            else:
+                logger.error("Database initialization returned False")
+                st.error("❌ Failed to initialize database. Please check logs for details.")
+                st.stop()
+        except Exception as e:
+            logger.error(f"Database initialization failed: {str(e)}", exc_info=True)
+            st.error(f"❌ Critical error: Failed to initialize database.\n\nError: {str(e)}")
+            st.stop()
+    
+    st.set_page_config(page_title="Ecommerce ERP", layout="wide")
+
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio(
+        "Go to",
+        ["Home", "Onboarding Wizard", "Profit Dashboard", "Gap Analysis", "Demand Planner",
+        "Data Manager", "Supplier Master", "Inventory Manager"]
+    )
+
+    # Empty-DB detection banner — guides new users to the wizard
+    try:
+        from src.infrastructure.database import get_engine
+        from sqlalchemy import text
+        with get_engine().connect() as conn:
+            product_count = conn.execute(
+                text("SELECT COUNT(*) FROM product_master")
+            ).scalar() or 0
+        if product_count == 0:
+            st.sidebar.warning(
+                "👋 **New here?**\n\n"
+                "Your catalog is empty. Start with the **Onboarding Wizard** "
+                "to import data from your marketplaces."
+            )
+    except Exception as e:
+        # Don't break navigation if DB check fails
+        logger.debug(f"Empty-DB check skipped: {e}")
+
+    st.sidebar.divider()
+    if st.sidebar.button("🔄 Refresh Data"):
+        from src.core.cache import clear_all_caches
+        clear_all_caches()
+        st.rerun()
+
+    try:
+        if page == "Home":
+            logger.debug("Loading Home Dashboard...")
+            from src.ui.pages import home_dashboard
+            home_dashboard.render()
+        elif page == "Onboarding Wizard":
+            logger.debug("Loading Onboarding Wizard...")
+            from src.ui.pages import onboarding_wizard
+            onboarding_wizard.render()
+        elif page == "Profit Dashboard":
+            logger.debug("Loading Profit Dashboard...")
+            from src.ui.pages import profit_dashboard
+            profit_dashboard.render()
+        elif page == "Gap Analysis":
+            logger.debug("Loading Gap Analysis...")
+            from src.ui.pages import gap_dashboard
+            gap_dashboard.render()
+        elif page == "Demand Planner":
+            logger.debug("Loading Demand Planner...")
+            from src.ui.pages import demand_planner
+            demand_planner.render()
+        elif page == "Data Manager":
+            logger.debug("Loading Data Manager...")
+            from src.ui.pages import data_manager
+            data_manager.render()
+        elif page == "Supplier Master":
+            logger.debug("Loading Supplier Master...")
+            from src.ui.pages import supplier_manager
+            supplier_manager.render()
+        elif page == "Inventory Manager":
+            logger.debug("Loading Inventory Manager...")
+            from src.ui.pages import inventory_manager
+            inventory_manager.render()
+    except Exception as e:
+        logger.error(f"Error rendering page '{page}': {str(e)}", exc_info=True)
+        st.error(f"❌ An error occurred while loading the page.\n\nError: {str(e)}")
+        st.info("Please check the logs for more details or try refreshing the page.")
+
+except Exception as e:
+    logger.critical(f"Critical error in main application: {str(e)}", exc_info=True)
+    st.error("❌ Critical application error. Please contact support or check the application logs.")
+    sys.exit(1)

@@ -4,13 +4,34 @@ PRAGMA foreign_keys = OFF;
 DROP TABLE IF EXISTS channel_listings;
 DROP TABLE IF EXISTS pack_master;
 DROP TABLE IF EXISTS product_master;
-DROP TABLE IF EXISTS pricing_rules;
-DROP TABLE IF EXISTS shipping_rules;
-DROP TABLE IF EXISTS config;
+DROP TABLE IF EXISTS supplier_master;
+DROP TABLE IF EXISTS schema_migrations;
 
 PRAGMA foreign_keys = ON;
 
--- 1. PRODUCT MASTER
+-- 1. SCHEMA MIGRATIONS (no dependencies — must be first)
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    migration_name VARCHAR(100) PRIMARY KEY,
+    applied_at     DATETIME     DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. SUPPLIER MASTER (parent of product_master)
+CREATE TABLE IF NOT EXISTS supplier_master (
+    supplier_code  VARCHAR(100) PRIMARY KEY,
+    name           VARCHAR(200) NOT NULL,
+    contact_name   VARCHAR(100),
+    contact_email  VARCHAR(200),
+    contact_phone  VARCHAR(50),
+    lead_time_days INT          NOT NULL DEFAULT 10,
+    payment_terms  VARCHAR(100),
+    notes          TEXT,
+    is_active      INTEGER      NOT NULL DEFAULT 1
+                   CHECK (is_active IN (0, 1)),
+    created_at     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME     DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. PRODUCT MASTER
 CREATE TABLE product_master (
     sku VARCHAR(50) PRIMARY KEY,
     name VARCHAR(255),
@@ -21,6 +42,7 @@ CREATE TABLE product_master (
     -- Supplier Info
     supplier VARCHAR(100),
     supplier_code VARCHAR(100),
+    supplier_product_code VARCHAR(100),
     
     -- Cost Structure
     mfg_cost DECIMAL(10,2) DEFAULT 0,
@@ -35,7 +57,7 @@ CREATE TABLE product_master (
     mrp DECIMAL(10,2)
 );
 
--- 2. PACK MASTER
+-- 4. PACK MASTER
 CREATE TABLE pack_master (
     pack_sku VARCHAR(50) PRIMARY KEY,
     master_sku VARCHAR(50) REFERENCES product_master(sku),
@@ -49,7 +71,7 @@ CREATE TABLE pack_master (
     final_wt_kg DECIMAL(10,3)
 );
 
--- 3. CHANNEL LISTINGS
+-- 5. CHANNEL LISTINGS
 CREATE TABLE channel_listings (
     channel_sku VARCHAR(100),
     marketplace VARCHAR(50),
@@ -67,29 +89,34 @@ CREATE TABLE channel_listings (
     PRIMARY KEY (channel_sku, marketplace)
 );
 
--- 4. PRICING RULES
-CREATE TABLE pricing_rules (
-    marketplace VARCHAR(50),
-    category_ref VARCHAR(100),
-    min_price DECIMAL(10,2),
-    max_price DECIMAL(10,2),
-    referral_fee_pct DECIMAL(5,4),
-    closing_fee_inr DECIMAL(10,2)
+-- NOTE: product_master.godown_stock_packs / shop_stock_pieces were historically
+-- added here via ALTER TABLE but are orphaned — all inventory tracking lives in
+-- inventory_master. The columns are removed from the schema and dropped from
+-- existing databases by the one-time deprecate_product_master_stock_v1 migration
+-- (see init_db.py). Do not reintroduce them.
+
+-- Updated dedicated Inventory table
+CREATE TABLE IF NOT EXISTS inventory_master (
+    sku VARCHAR(50) PRIMARY KEY REFERENCES product_master(sku),
+    godown_stock_packs INT DEFAULT 0,
+    shop_stock_pieces INT DEFAULT 0,
+    pack_multiplier INT DEFAULT 1, -- Remembers the pieces-per-pack for this SKU
+    reorder_point INT DEFAULT 0,   -- Low-stock threshold in packs (0 = not configured)
+    reorder_qty INT DEFAULT 0,     -- Suggested reorder quantity in packs
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. SHIPPING RULES
-CREATE TABLE shipping_rules (
-    marketplace VARCHAR(50),
-    weight_slab_max_kg DECIMAL(5,3),
-    local_fee DECIMAL(10,2),
-    regional_fee DECIMAL(10,2),
-    national_fee DECIMAL(10,2)
-);
-
--- 6. CONFIG
-CREATE TABLE config (
-    marketplace VARCHAR(50) PRIMARY KEY,
-    default_zone VARCHAR(50),
-    volumetric_divisor INT,
-    gst_on_fees DECIMAL(5,2)
+-- Simplified Ledger for Godown transactions
+CREATE TABLE IF NOT EXISTS stock_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku VARCHAR(50),
+    transaction_type VARCHAR(20),       -- 'ADD', 'REMOVE', 'STOCK_TAKE'
+    packs INT,
+    multiplier INT,                     -- The multiplier used at that moment
+    total_pieces_affected INT,          -- packs * multiplier
+    reason_code VARCHAR(50) DEFAULT 'ADJUSTMENT', -- Structured reason (RECEIVED, SALE, DAMAGED, etc.)
+    reason TEXT,                        -- Optional freetext notes
+    updated_by VARCHAR(100) DEFAULT 'system',     -- Username for audit trail
+    running_balance INT,                -- godown_stock_packs balance immediately AFTER this row (NULL for pre-migration history)
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );

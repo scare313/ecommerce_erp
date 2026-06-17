@@ -1,0 +1,120 @@
+5. Complete Prioritized Task List
+🔴 P0 — Critical / This Week
+#
+TASK
+WHY
+1
+Fix the SyntaxError in profit_dashboard.py:80 and gap_dashboard.py:66
+App crashes on these pages 
+erp_errors.log
+2
+Fix duplicate Streamlit keys in Inventory Manager
+Page won't render 
+erp_errors.log
+3
+Add shipping fallback rule when weight exceeds slab — currently silently sets fee to ₹0, corrupting profit 
+ecommerce_erp.log
+Wrong business decisions
+4
+Add .flake8 / ruff + pre-commit hooks
+Prevent repeat syntax bugs
+5
+Add basic password/login (even Streamlit st.secrets based)
+Security
+
+
+🟠 P1 — High Priority / This Month
+#
+TASK
+IMPACT
+6
+Add @st.cache_data(ttl=300) on read-heavy queries (gap matrix, profitability, dropdowns)
+5–10× speed improvement
+7
+Make marketplaces dynamic from config table everywhere (remove hardcoded ["Amazon","Flipkart","Meesho"]) 
+gap_service.py +2
+Extensibility
+8
+Build Home/KPI Dashboard (Total SKUs, Coverage %, Avg Margin, Low Stock alerts, Last 7d sales)
+Matches modern ERPs
+9
+Add pytest test suite for finance_service (fee calc), gap_service, parsers
+Reliability
+10
+Add Alembic migrations instead of one-shot migration_script.py 
+migration_script.py
+Safe schema evolution
+11
+Add audit log table for price/listing edits
+Traceability
+12
+Implement search/filter state persistence via st.session_state
+UX 
+glassbox.com
+13
+Add CSV/PDF export alongside Excel 
+data_manager.py
+Flexibility
+
+
+🟡 P2 — Medium Priority / Next Quarter
+#
+TASK
+IMPACT
+14
+Migrate from SQLite to PostgreSQL (already in roadmap 
+README.md
+)
+Multi-user
+15
+Build a FastAPI service layer so UI and future mobile/automation share logic
+Decoupling
+16
+Marketplace API integrations (Amazon SP-API, Flipkart Seller API) for auto sales sync
+Eliminates manual file upload — biggest UX win
+17
+Demand forecasting with seasonality (Prophet/statsmodels) instead of flat sales-days × multiplier 
+inventory_service.py
+Match EasyEcom
+18
+Returns/RTO tracking — new table + dashboard
+Match Browntape
+19
+Multi-warehouse support (extend inventory_master with warehouse_id) 
+schema.sql
+Scalability
+20
+Role-based access (Admin / Operations / Viewer)
+Team usage
+21
+User onboarding flow + tooltips on first launch
+UX best practice 
+seidor.com
+22
+Scheduled email reports (daily profit summary, weekly gap report)
+Engagement
+23
+Replace Streamlit with Next.js + FastAPI OR adopt Streamlit Cloud Pro / custom theme for branding
+Professional look
+
+
+🟢 P3 — Long-term / Strategic
+#
+TASK
+IMPACT
+24
+Mobile-responsive UI or React Native companion app for warehouse staff
+
+README.md
+ roadmap
+25
+AI assistant (LLM-powered) — "Show me loss-making SKUs above ₹500" in natural language
+Differentiator
+26
+Supplier portal — suppliers log in to confirm POs
+B2B feature
+27
+Accounting integration (Tally / Zoho Books / QuickBooks)
+Match EasyEcom
+28
+Data warehouse (BigQuery/ClickHouse) + B

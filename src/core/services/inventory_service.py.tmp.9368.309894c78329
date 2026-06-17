@@ -23,19 +23,6 @@ class InventoryService:
             logger.error(f"Failed to initialize InventoryService: {str(e)}", exc_info=True)
             raise
 
-    @staticmethod
-    def _godown_balance(conn, sku):
-        """Return the current godown_stock_packs for a SKU on an open connection.
-
-        Used to capture stock_ledger.running_balance immediately after a write,
-        inside the same transaction so the value reflects the just-applied change.
-        """
-        row = conn.execute(
-            text("SELECT godown_stock_packs FROM inventory_master WHERE sku = :sku"),
-            {"sku": sku},
-        ).fetchone()
-        return int(row[0]) if (row and row[0] is not None) else 0
-
     def get_master_mapping(self):
         """Fetch channel listing to base product hierarchy mapping.
         
@@ -45,7 +32,7 @@ class InventoryService:
                 - base_sku, product_name, supplier, category
         """
         query = """
-        SELECT
+        SELECT 
             cl.marketplace,
             cl.channel_sku,
             pm.pack_sku,
@@ -53,8 +40,6 @@ class InventoryService:
             pm.master_sku as base_sku,
             p.name as product_name,
             p.supplier,
-            UPPER(TRIM(p.supplier_code)) as supplier_code,
-            p.supplier_product_code,
             p.category
         FROM channel_listings cl
         JOIN pack_master pm ON cl.internal_sku = pm.pack_sku
@@ -142,43 +127,21 @@ class InventoryService:
         valid_sales['base_units_sold'] = valid_sales['qty'] * valid_sales['pack_qty']
         
         # 5. Group by BASE PRODUCT (Supplier View)
-        plan = valid_sales.groupby(
-            ['base_sku', 'product_name', 'supplier', 'supplier_code',
-             'supplier_product_code', 'category'],
-            dropna=False,
-        ).agg(total_base_sold=('base_units_sold', 'sum')).reset_index()
-
-        # 5.5 Merge supplier lead times and names from supplier_master
-        with self.engine.connect() as conn:
-            lead_time_df = pd.read_sql(
-                text("SELECT supplier_code, lead_time_days FROM supplier_master WHERE is_active = 1"),
-                conn,
-            )
-            names_df = pd.read_sql(
-                text("SELECT supplier_code, name AS supplier_name FROM supplier_master WHERE is_active = 1"),
-                conn,
-            )
-
-        plan = pd.merge(plan, lead_time_df, on='supplier_code', how='left')
-        plan['lead_time_source'] = plan['lead_time_days'].apply(
-            lambda x: "Supplier Master" if pd.notna(x) else "Default (sidebar)"
-        )
-        plan = pd.merge(plan, names_df, on='supplier_code', how='left')
-        plan['supplier_name'] = plan['supplier_name'].fillna(plan['supplier'])
-
+        plan = valid_sales.groupby(['base_sku', 'product_name', 'supplier', 'category']).agg(
+            total_base_sold=('base_units_sold', 'sum')
+        ).reset_index()
+        
         # 6. Inventory Math
         sales_days = params.get('sales_days', 30)
         lead_time = params.get('lead_time', 10)
         safety_days = params.get('safety_stock', 7)
         buffer_days = params.get('purchase_period', 15)
-
-        plan['lead_time_days'] = plan['lead_time_days'].fillna(lead_time)
-
+        
         # Average Daily Sales (ADS)
         plan['ads'] = plan['total_base_sold'] / sales_days
-
+        
         # Requirements
-        plan['lead_time_demand'] = plan['ads'] * plan['lead_time_days']
+        plan['lead_time_demand'] = plan['ads'] * lead_time
         plan['safety_stock'] = plan['ads'] * safety_days
         plan['cycle_stock'] = plan['ads'] * buffer_days
         
@@ -276,8 +239,8 @@ class InventoryService:
                 text("""
                     INSERT INTO stock_ledger
                         (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by, running_balance)
-                    VALUES (:sku, 'ADJUSTMENT', :packs, 1, :total, :reason_code, :reason, :updated_by, :rb)
+                         reason_code, reason, updated_by)
+                    VALUES (:sku, 'ADJUSTMENT', :packs, 1, :total, :reason_code, :reason, :updated_by)
                 """),
                 {
                     "sku": sku,
@@ -286,7 +249,6 @@ class InventoryService:
                     "reason_code": reason_code,
                     "reason": ledger_reason,
                     "updated_by": updated_by,
-                    "rb": self._godown_balance(conn, sku),
                 }
             )
             # engine.begin() auto-commits on clean exit and rolls back on exception
@@ -330,120 +292,38 @@ class InventoryService:
                 text("UPDATE inventory_master SET shop_stock_pieces = shop_stock_pieces + :pc, last_updated = CURRENT_TIMESTAMP WHERE sku = :sku"),
                 {"pc": pieces, "sku": sku}
             )
-            # Godown balance after the deduction — same value for both ledger rows
-            # (the shop update does not change godown_stock_packs).
-            godown_after = self._godown_balance(conn, sku)
             # Ledger: REMOVE from godown
             conn.execute(
                 text("""
                     INSERT INTO stock_ledger
                         (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by, running_balance)
-                    VALUES (:sku, 'REMOVE', :p, :m, :tp, 'TRANSFER', 'Moved to Shop', :updated_by, :rb)
+                         reason_code, reason, updated_by)
+                    VALUES (:sku, 'REMOVE', :p, :m, :tp, 'TRANSFER', 'Moved to Shop', :updated_by)
                 """),
-                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces,
-                 "updated_by": updated_by, "rb": godown_after}
+                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces, "updated_by": updated_by}
             )
             # Ledger: ADD to shop (packs converted to pieces)
             conn.execute(
                 text("""
                     INSERT INTO stock_ledger
                         (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by, running_balance)
-                    VALUES (:sku, 'ADD', :p, :m, :tp, 'TRANSFER', 'Received from Godown', :updated_by, :rb)
+                         reason_code, reason, updated_by)
+                    VALUES (:sku, 'ADD', :p, :m, :tp, 'TRANSFER', 'Received from Godown', :updated_by)
                 """),
-                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces,
-                 "updated_by": updated_by, "rb": godown_after}
+                {"sku": sku, "p": packs, "m": multiplier, "tp": pieces, "updated_by": updated_by}
             )
             # engine.begin() auto-commits on clean exit and rolls back on exception
 
     def get_godown_inventory(self):
-        """Fetches SKU, Category, Current Packs, Multiplier, and reorder levels."""
+        """Fetches SKU, Category, Current Packs, and Multiplier."""
         query = """
         SELECT
             p.sku, p.category,
             COALESCE(i.godown_stock_packs, 0) as godown_stock_packs,
-            COALESCE(i.pack_multiplier, 1) as pack_multiplier,
-            COALESCE(i.reorder_point, 0) as reorder_point,
-            COALESCE(i.reorder_qty, 0) as reorder_qty
+            COALESCE(i.pack_multiplier, 1) as pack_multiplier
         FROM product_master p
         LEFT JOIN inventory_master i ON p.sku = i.sku
         ORDER BY p.sku
-        """
-        return pd.read_sql(query, self.engine)
-
-    def set_reorder_levels(self, sku, reorder_point, reorder_qty, updated_by="system"):
-        """Set the per-SKU reorder point and reorder quantity (in packs).
-
-        Args:
-            sku: Product SKU
-            reorder_point: Low-stock threshold in packs (0 = not configured)
-            reorder_qty: Suggested reorder quantity in packs
-            updated_by: Reserved for future audit use
-
-        Raises:
-            DataValidationException: If either value is negative.
-
-        Reorder levels are configuration, not stock movements — no ledger entry
-        is written. The inventory_master row is created if it does not exist.
-        """
-        rp = int(reorder_point)
-        rq = int(reorder_qty)
-        if rp < 0 or rq < 0:
-            raise DataValidationException(
-                "Reorder point and reorder quantity cannot be negative."
-            )
-
-        with self.engine.begin() as conn:
-            conn.execute(
-                text("INSERT OR IGNORE INTO inventory_master (sku) VALUES (:sku)"),
-                {"sku": sku},
-            )
-            conn.execute(
-                text("""
-                    UPDATE inventory_master
-                    SET reorder_point = :rp,
-                        reorder_qty   = :rq,
-                        last_updated  = CURRENT_TIMESTAMP
-                    WHERE sku = :sku
-                """),
-                {"rp": rp, "rq": rq, "sku": sku},
-            )
-        logger.info(
-            f"Reorder levels set for {sku}: point={rp}, qty={rq} (by {updated_by})"
-        )
-
-    def reconcile_godown_balances(self):
-        """Integrity check: latest ledger running_balance vs live godown stock.
-
-        For each SKU, compares the running_balance on its most recent ledger row
-        (that has one) against inventory_master.godown_stock_packs. A mismatch
-        means a ledger row was edited/deleted directly, or a write bypassed the
-        ledger. Rows predating the running_balance column (NULL) are ignored.
-
-        Returns:
-            DataFrame with columns: sku, ledger_balance, actual_balance, diff.
-            Empty DataFrame means everything reconciles.
-        """
-        query = """
-        WITH latest AS (
-            SELECT sku, running_balance,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY sku ORDER BY id DESC
-                   ) AS rn
-            FROM stock_ledger
-            WHERE running_balance IS NOT NULL
-        )
-        SELECT
-            l.sku                              AS sku,
-            l.running_balance                  AS ledger_balance,
-            COALESCE(i.godown_stock_packs, 0)  AS actual_balance,
-            l.running_balance - COALESCE(i.godown_stock_packs, 0) AS diff
-        FROM latest l
-        LEFT JOIN inventory_master i ON i.sku = l.sku
-        WHERE l.rn = 1
-          AND l.running_balance <> COALESCE(i.godown_stock_packs, 0)
-        ORDER BY ABS(l.running_balance - COALESCE(i.godown_stock_packs, 0)) DESC
         """
         return pd.read_sql(query, self.engine)
 
@@ -473,91 +353,6 @@ class InventoryService:
         df = pd.read_sql(query, self.engine)
         df['sku'] = df['sku'].str.upper().str.strip()
         return df
-
-    def get_movement_report(self, sku: str, start_date: str, end_date: str) -> dict:
-        """Return opening balance, movements, and closing balance for a SKU over a date range.
-
-        Args:
-            sku: Product SKU (case-insensitive; normalised to upper internally)
-            start_date: ISO date string 'YYYY-MM-DD' (inclusive)
-            end_date: ISO date string 'YYYY-MM-DD' (inclusive)
-
-        Returns:
-            dict with keys:
-                opening_balance (int) — godown packs at start of period (None if unknown)
-                movements (DataFrame) — ledger rows in [start_date, end_date], ASC
-                closing_balance (int | None) — running_balance of last row in range
-        """
-        sku = sku.strip().upper()
-
-        with self.engine.connect() as conn:
-            # Opening balance: running_balance of the most recent row BEFORE start_date.
-            # Uses running_balance so it's a single-row lookup rather than a full sum.
-            ob_row = conn.execute(
-                text("""
-                    SELECT running_balance
-                    FROM stock_ledger
-                    WHERE UPPER(sku) = :sku
-                      AND date(timestamp) < :start_date
-                      AND running_balance IS NOT NULL
-                    ORDER BY id DESC
-                    LIMIT 1
-                """),
-                {"sku": sku, "start_date": start_date},
-            ).fetchone()
-            opening_balance = int(ob_row[0]) if ob_row else None
-
-        movements = pd.read_sql(
-            text("""
-                SELECT id, transaction_type, packs, multiplier, total_pieces_affected,
-                       reason_code, reason, updated_by, running_balance, timestamp
-                FROM stock_ledger
-                WHERE UPPER(sku) = :sku
-                  AND date(timestamp) BETWEEN :start_date AND :end_date
-                ORDER BY id ASC
-            """),
-            self.engine,
-            params={"sku": sku, "start_date": start_date, "end_date": end_date},
-        )
-
-        closing_balance = None
-        if not movements.empty and movements['running_balance'].notna().any():
-            # Last non-null running_balance in the range
-            non_null = movements[movements['running_balance'].notna()]
-            if not non_null.empty:
-                closing_balance = int(non_null.iloc[-1]['running_balance'])
-
-        return {
-            "opening_balance": opening_balance,
-            "movements": movements,
-            "closing_balance": closing_balance,
-        }
-
-    def get_low_stock_alerts(self) -> pd.DataFrame:
-        """Return SKUs where godown stock is at or below their configured reorder point.
-
-        Only SKUs with reorder_point > 0 are included (0 means 'not configured').
-        Out-of-stock SKUs (godown_stock_packs <= 0) are included — they need ordering too.
-
-        Returns:
-            DataFrame: sku, category, godown_stock_packs, reorder_point, reorder_qty,
-                       gap (reorder_point - godown_stock_packs)
-        """
-        query = """
-        SELECT
-            p.sku,
-            p.category,
-            COALESCE(i.godown_stock_packs, 0)  AS godown_stock_packs,
-            COALESCE(i.reorder_point, 0)        AS reorder_point,
-            COALESCE(i.reorder_qty, 0)          AS reorder_qty,
-            COALESCE(i.reorder_point, 0) - COALESCE(i.godown_stock_packs, 0) AS gap
-        FROM product_master p
-        JOIN inventory_master i ON i.sku = p.sku
-        WHERE i.reorder_point > 0
-          AND COALESCE(i.godown_stock_packs, 0) <= i.reorder_point
-        ORDER BY gap DESC, p.sku
-        """
-        return pd.read_sql(query, self.engine)
 
     def manage_godown_stock(self, sku, packs, multiplier, action_type,
                             reason="", reason_code="ADJUSTMENT", updated_by="system"):
@@ -604,13 +399,12 @@ class InventoryService:
             conn.execute(text("""
                 INSERT INTO stock_ledger
                     (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                     reason_code, reason, updated_by, running_balance)
-                VALUES (:sku, :action, :p, :m, :tp, :reason_code, :r, :updated_by, :rb)
+                     reason_code, reason, updated_by)
+                VALUES (:sku, :action, :p, :m, :tp, :reason_code, :r, :updated_by)
             """), {
                 "sku": sku, "action": action_type, "p": packs,
                 "m": multiplier, "tp": total_pieces,
-                "reason_code": reason_code, "r": reason, "updated_by": updated_by,
-                "rb": self._godown_balance(conn, sku),
+                "reason_code": reason_code, "r": reason, "updated_by": updated_by
             })
             # engine.begin() auto-commits on clean exit and rolls back on exception
 
@@ -667,20 +461,17 @@ class InventoryService:
                 {"pieces": piece_change, "sku": sku}
             )
 
-            # 4. Log to Ledger (multiplier=1: shop stock is in pieces, not packs).
-            #    running_balance records the godown pack balance (unchanged by a
-            #    shop-only movement) so the column is never NULL going forward.
+            # 4. Log to Ledger (multiplier=1: shop stock is in pieces, not packs)
             conn.execute(
                 text("""
                     INSERT INTO stock_ledger
                         (sku, transaction_type, packs, multiplier, total_pieces_affected,
-                         reason_code, reason, updated_by, running_balance)
-                    VALUES (:sku, :action, :pieces, 1, :pieces, :reason_code, :reason, :updated_by, :rb)
+                         reason_code, reason, updated_by)
+                    VALUES (:sku, :action, :pieces, 1, :pieces, :reason_code, :reason, :updated_by)
                 """),
                 {
                     "sku": sku, "action": action_type, "pieces": pieces,
                     "reason_code": reason_code, "reason": reason, "updated_by": updated_by,
-                    "rb": self._godown_balance(conn, sku),
                 }
             )
             # engine.begin() auto-commits on clean exit and rolls back on exception

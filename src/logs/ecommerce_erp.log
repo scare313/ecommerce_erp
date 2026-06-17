@@ -1,0 +1,113 @@
+2026-04-05 15:43:17 - ecommerce_erp - INFO - setup_logging:74 - Logging system initialized
+2026-04-05 15:43:17 - ecommerce_erp - INFO - setup_logging:74 - Logging system initialized
+2026-04-05 15:43:17 - root - INFO - <module>:1 - Logging system test successful
+2026-04-05 15:43:31 - ecommerce_erp - INFO - setup_logging:74 - Logging system initialized
+2026-04-05 15:44:46 - ecommerce_erp - INFO - setup_logging:74 - Logging system initialized
+2026-04-05 15:44:46 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:44:46 - ecommerce_erp - INFO - <module>:20 - Initializing database...
+2026-04-05 15:44:46 - ecommerce_erp - INFO - init_database:20 - Database Path: C:\Automation\erp\ecommerce_erp\data\db\ecommerce.db
+2026-04-05 15:44:46 - ecommerce_erp - INFO - init_database:26 - Database file found: 446464 bytes
+2026-04-05 15:44:46 - ecommerce_erp - INFO - init_database:35 - Database has 346 products. Ready to use.
+2026-04-05 15:44:46 - ecommerce_erp - INFO - <module>:24 - Database initialization completed successfully
+2026-04-05 15:44:46 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Profit Dashboard
+2026-04-05 15:44:46 - ecommerce_erp - INFO - render:7 - Loading Profit Dashboard page
+2026-04-05 15:44:46 - ecommerce_erp - DEBUG - __init__:9 - FinanceService initialized
+2026-04-05 15:44:46 - ecommerce_erp - DEBUG - render:13 - Fetching profitability data for marketplace: Amazon
+2026-04-05 15:44:46 - ecommerce_erp - INFO - calculate_profitability:12 - Calculating profitability for marketplace: Amazon
+2026-04-05 15:44:46 - ecommerce_erp - DEBUG - calculate_profitability:38 - Fetched 587 listings for profitability calculation
+2026-04-05 15:44:46 - ecommerce_erp - DEBUG - calculate_profitability:56 - Starting profitability calculations
+2026-04-05 15:44:48 - ecommerce_erp - WARNING - _calculate_fees:125 - No shipping rule found for Amazon/10.1866kg
+2026-04-05 15:44:48 - ecommerce_erp - WARNING - _calculate_fees:125 - No shipping rule found for Amazon/12.321kg
+2026-04-05 15:44:48 - ecommerce_erp - WARNING - _calculate_fees:125 - No shipping rule found for Amazon/17.2494kg
+2026-04-05 15:44:48 - ecommerce_erp - DEBUG - _calculate_fees:137 - Fee calculations completed
+2026-04-05 15:44:48 - ecommerce_erp - INFO - calculate_profitability:70 - Profitability calculation completed for 587 listings
+2026-04-05 15:44:48 - ecommerce_erp - WARNING - render:26 - 71 listings missing selling price
+2026-04-05 15:44:48 - ecommerce_erp - INFO - render:36 - Displaying profitability data for 516 SKUs
+2026-04-05 15:44:52 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:44:52 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Gap Analysis
+2026-04-05 15:44:52 - ecommerce_erp - INFO - render:7 - Loading Gap Analysis Dashboard page
+2026-04-05 15:44:52 - ecommerce_erp - DEBUG - __init__:8 - GapService initialized
+2026-04-05 15:44:52 - ecommerce_erp - DEBUG - render:13 - Fetching gap analysis matrix
+2026-04-05 15:44:52 - ecommerce_erp - INFO - get_gap_matrix:11 - Generating gap analysis matrix
+2026-04-05 15:44:52 - ecommerce_erp - DEBUG - get_gap_matrix:16 - Found 427 packs
+2026-04-05 15:44:52 - ecommerce_erp - DEBUG - get_gap_matrix:29 - Analyzing 3 marketplaces: ['Amazon', 'Flipkart', 'Meesho']
+2026-04-05 15:44:52 - ecommerce_erp - DEBUG - get_gap_matrix:42 - Found 1075 actual listings
+2026-04-05 15:44:52 - ecommerce_erp - INFO - get_gap_matrix:70 - Gap analysis complete: 1281 opportunities, 514 missing (59.9% coverage)
+2026-04-05 15:44:52 - ecommerce_erp - INFO - render:31 - Gap analysis: 1281 total opportunities, 514 missing listings, 59.9% coverage
+2026-04-05 15:44:52 - ecommerce_erp - DEBUG - render:61 - Applied gaps-only filter
+2026-04-05 15:44:59 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:44:59 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Demand Planner
+2026-04-05 15:44:59 - ecommerce_erp - INFO - render:9 - Loading Demand Planner page
+2026-04-05 15:45:00 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:01 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Data Manager
+2026-04-05 15:45:01 - ecommerce_erp - INFO - render:9 - User accessed Data Manager page
+2026-04-05 15:45:01 - ecommerce_erp - DEBUG - __init__:9 - CatalogService initialized
+2026-04-05 15:45:01 - ecommerce_erp - DEBUG - __init__:10 - BulkService initialized
+2026-04-05 15:45:01 - ecommerce_erp - DEBUG - get_category_dropdown:47 - Retrieved 11 categories for dropdown
+2026-04-05 15:45:01 - ecommerce_erp - DEBUG - get_product_dropdown:23 - Retrieved 346 products for dropdown
+2026-04-05 15:45:01 - ecommerce_erp - DEBUG - get_pack_dropdown:35 - Retrieved 427 packs for dropdown
+2026-04-05 15:45:02 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:02 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Inventory Manager
+2026-04-05 15:45:02 - ecommerce_erp - INFO - render:15 - Loading Inventory Manager page
+2026-04-05 15:45:02 - ecommerce_erp - DEBUG - render:25 - Fetching current inventory balances
+2026-04-05 15:45:02 - ecommerce_erp - INFO - render:33 - Displaying 346 inventory records
+2026-04-05 15:45:02 - ecommerce_erp - DEBUG - render:42 - Loading inventory for stock update form
+2026-04-05 15:45:02 - ecommerce_erp - DEBUG - render:93 - Fetching stock ledger history
+2026-04-05 15:45:02 - ecommerce_erp - INFO - render:98 - Displaying 3 stock ledger records
+2026-04-05 15:45:02 - ecommerce_erp - DEBUG - render:247 - Generating inventory export template
+2026-04-05 15:45:03 - ecommerce_erp - INFO - render:256 - Inventory export template generated
+2026-04-05 15:45:05 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:05 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Data Manager
+2026-04-05 15:45:05 - ecommerce_erp - INFO - render:9 - User accessed Data Manager page
+2026-04-05 15:45:05 - ecommerce_erp - DEBUG - __init__:9 - CatalogService initialized
+2026-04-05 15:45:05 - ecommerce_erp - DEBUG - __init__:10 - BulkService initialized
+2026-04-05 15:45:05 - ecommerce_erp - DEBUG - get_category_dropdown:47 - Retrieved 11 categories for dropdown
+2026-04-05 15:45:05 - ecommerce_erp - DEBUG - get_product_dropdown:23 - Retrieved 346 products for dropdown
+2026-04-05 15:45:05 - ecommerce_erp - DEBUG - get_pack_dropdown:35 - Retrieved 427 packs for dropdown
+2026-04-05 15:45:08 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:08 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Inventory Manager
+2026-04-05 15:45:08 - ecommerce_erp - INFO - render:15 - Loading Inventory Manager page
+2026-04-05 15:45:08 - ecommerce_erp - DEBUG - render:25 - Fetching current inventory balances
+2026-04-05 15:45:08 - ecommerce_erp - INFO - render:33 - Displaying 346 inventory records
+2026-04-05 15:45:08 - ecommerce_erp - DEBUG - render:42 - Loading inventory for stock update form
+2026-04-05 15:45:08 - ecommerce_erp - DEBUG - render:93 - Fetching stock ledger history
+2026-04-05 15:45:08 - ecommerce_erp - INFO - render:98 - Displaying 3 stock ledger records
+2026-04-05 15:45:08 - ecommerce_erp - DEBUG - render:247 - Generating inventory export template
+2026-04-05 15:45:08 - ecommerce_erp - INFO - render:256 - Inventory export template generated
+2026-04-05 15:45:09 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:09 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Data Manager
+2026-04-05 15:45:09 - ecommerce_erp - INFO - render:9 - User accessed Data Manager page
+2026-04-05 15:45:09 - ecommerce_erp - DEBUG - __init__:9 - CatalogService initialized
+2026-04-05 15:45:09 - ecommerce_erp - DEBUG - __init__:10 - BulkService initialized
+2026-04-05 15:45:09 - ecommerce_erp - DEBUG - get_category_dropdown:47 - Retrieved 11 categories for dropdown
+2026-04-05 15:45:09 - ecommerce_erp - DEBUG - get_product_dropdown:23 - Retrieved 346 products for dropdown
+2026-04-05 15:45:09 - ecommerce_erp - DEBUG - get_pack_dropdown:35 - Retrieved 427 packs for dropdown
+2026-04-05 15:45:10 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:10 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Demand Planner
+2026-04-05 15:45:10 - ecommerce_erp - INFO - render:9 - Loading Demand Planner page
+2026-04-05 15:45:12 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:12 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Profit Dashboard
+2026-04-05 15:45:12 - ecommerce_erp - INFO - render:7 - Loading Profit Dashboard page
+2026-04-05 15:45:12 - ecommerce_erp - DEBUG - __init__:9 - FinanceService initialized
+2026-04-05 15:45:12 - ecommerce_erp - DEBUG - render:13 - Fetching profitability data for marketplace: Amazon
+2026-04-05 15:45:12 - ecommerce_erp - INFO - calculate_profitability:12 - Calculating profitability for marketplace: Amazon
+2026-04-05 15:45:12 - ecommerce_erp - DEBUG - calculate_profitability:38 - Fetched 587 listings for profitability calculation
+2026-04-05 15:45:12 - ecommerce_erp - DEBUG - calculate_profitability:56 - Starting profitability calculations
+2026-04-05 15:45:13 - ecommerce_erp - INFO - <module>:14 - Starting Ecommerce ERP Application
+2026-04-05 15:45:13 - ecommerce_erp - INFO - <module>:34 - User navigated to page: Gap Analysis
+2026-04-05 15:45:13 - ecommerce_erp - INFO - render:7 - Loading Gap Analysis Dashboard page
+2026-04-05 15:45:13 - ecommerce_erp - DEBUG - __init__:8 - GapService initialized
+2026-04-05 15:45:13 - ecommerce_erp - DEBUG - render:13 - Fetching gap analysis matrix
+2026-04-05 15:45:13 - ecommerce_erp - INFO - get_gap_matrix:11 - Generating gap analysis matrix
+2026-04-05 15:45:13 - ecommerce_erp - DEBUG - get_gap_matrix:16 - Found 427 packs
+2026-04-05 15:45:13 - ecommerce_erp - DEBUG - get_gap_matrix:29 - Analyzing 3 marketplaces: ['Amazon', 'Flipkart', 'Meesho']
+2026-04-05 15:45:13 - ecommerce_erp - DEBUG - get_gap_matrix:42 - Found 1075 actual listings
+2026-04-05 15:45:13 - ecommerce_erp - INFO - get_gap_matrix:70 - Gap analysis complete: 1281 opportunities, 514 missing (59.9% coverage)
+2026-04-05 15:45:13 - ecommerce_erp - INFO - render:31 - Gap analysis: 1281 total opportunities, 514 missing listings, 59.9% coverage
+2026-04-05 15:45:13 - ecommerce_erp - DEBUG - render:61 - Applied gaps-only filter
+2026-04-05 15:45:13 - ecommerce_erp - WARNING - _calculate_fees:125 - No shipping rule found for Amazon/10.1866kg
+2026-04-05 15:45:13 - ecommerce_erp - WARNING - _calculate_fees:125 - No shipping rule found for Amazon/12.321kg
+2026-04-05 15:45:13 - ecommerce_erp - WARNING - _calculate_fees:125 - No shipping rule found for Amazon/17.2494kg
+2026-04-05 15:45:14 - ecommerce_erp - DEBUG - _calculate_fees:137 - Fee calculations completed
+2026-04-05 15:45:14 - ecommerce_erp - INFO - calculate_profitability:70 - Profitability calculation completed for 587 listings
+2026-04-05 15:45:14 - ecommerce_erp - WARNING - render:26 - 71 listings missing selling price

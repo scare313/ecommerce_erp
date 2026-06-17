@@ -1,0 +1,306 @@
+"""Inventory Manager UI Page.
+
+Provides interfaces for managing godown stock levels including:
+- Current Balances: View all SKU inventories
+- Update Stock: Add or remove packs with reason tracking
+- Recent History: View transaction ledger
+- Bulk Update: Mass import from Excel
+"""
+import streamlit as st
+import pandas as pd
+import io
+from src.core.services.inventory_service import InventoryService
+from src.infrastructure.database import get_engine
+from src.infrastructure.logger import get_logger
+from src.core.cache import clear_inventory_cache
+from sqlalchemy import text
+
+logger = get_logger(__name__)
+
+def color_action(val):
+    """Apply color styling to transaction type: green for ADD, red for REMOVE.
+    
+    Args:
+        val: Transaction type ('ADD' or 'REMOVE')
+        
+    Returns:
+        str: CSS color styling
+    """
+    color = 'green' if val == 'ADD' else 'red'
+    return f'color: {color}; font-weight: bold'
+
+def render():
+    """Render the Inventory Manager page."""
+    try:
+        logger.info("Rendering Inventory Manager...")
+        st.title("📦 Godown Inventory")
+        
+        try:
+            service = InventoryService()
+            logger.debug("InventoryService initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize InventoryService: {str(e)}", exc_info=True)
+            st.error(f"Failed to initialize service: {str(e)}")
+            return
+        
+        # Organize into Tabs
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Current Balances", "➕ Update Stock", "📜 Recent History", "📥 Bulk Update"])
+
+        # --- TAB 1: BALANCES ---
+        with tab1:
+            try:
+                logger.debug("Loading godown inventory balances...")
+                df = service.get_godown_inventory()
+                logger.info(f"Loaded inventory for {len(df)} SKUs")
+                
+                if df.empty:
+                    logger.warning("No inventory records found")
+                    st.warning("No inventory records found.")
+                else:
+                    df['Total Pieces'] = df['godown_stock_packs'] * df['pack_multiplier']
+                    st.dataframe(df, width='stretch', hide_index=True)
+            except Exception as e:
+                logger.error(f"Error loading inventory balances: {str(e)}", exc_info=True)
+                st.error(f"Error loading inventory: {str(e)}")
+
+        # --- TAB 2: UPDATE ---
+        with tab2:
+            try:
+                logger.debug("Loading inventory for update form...")
+                df_for_select = service.get_godown_inventory()
+                
+                if df_for_select.empty:
+                    logger.warning("No inventory records found for update")
+                    st.warning("No inventory records found. Please add stock first.")
+                else:
+                    with st.form("stock_form"):
+                        c1, c2 = st.columns(2)
+                        sku = c1.selectbox("Select SKU", df_for_select['sku'].unique())
+                        action = c2.selectbox("Action", ["ADD", "REMOVE"])
+                        
+                        # Fetch the multiplier this SKU "remembers"
+                        filtered_row = df_for_select[df_for_select['sku'] == sku]
+                        if filtered_row.empty:
+                            logger.error(f"SKU {sku} not found in inventory")
+                            st.error(f"SKU {sku} not found in inventory. Please select a valid SKU.")
+                        else:
+                            current_row = filtered_row.iloc[0]
+                            
+                            # Safely convert pack_multiplier with fallback
+                            try:
+                                default_mult = int(current_row['pack_multiplier'])
+                            except (ValueError, TypeError):
+                                logger.warning(f"Invalid pack_multiplier for {sku}, using default")
+                                default_mult = 1
+                                st.warning("Using default pack size of 1")
+                            
+                            c3, c4 = st.columns(2)
+                            num_packs = c3.number_input("Number of Packs", min_value=1, step=1)
+                            pack_size = c4.number_input("Pieces per Pack (Multiplier)", min_value=1, value=default_mult)
+                            
+                            reason = st.text_input("Note / Reference (Optional)")
+                            
+                            if st.form_submit_button("Update Inventory"):
+                                try:
+                                    logger.info(f"Updating inventory: {sku} {action} {num_packs} packs")
+                                    service.manage_godown_stock(sku, num_packs, pack_size, action, reason)
+                                    logger.info(f"Successfully updated inventory for {sku}")
+                                    st.success(f"Success: {action} {num_packs} packs for {sku}")
+                                    st.rerun()
+                                except Exception as e:
+                                    logger.error(f"Error updating inventory: {str(e)}", exc_info=True)
+                                    st.error(f"Update failed: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error in inventory update tab: {str(e)}", exc_info=True)
+                st.error(f"Error loading inventory: {str(e)}")
+
+        # --- TAB 3: HISTORY ---
+        with tab3:
+            try:
+                logger.debug("Loading stock ledger history...")
+                history_query = "SELECT * FROM stock_ledger ORDER BY timestamp DESC"
+                history_df = pd.read_sql(history_query, service.engine)
+                logger.info(f"Loaded {len(history_df)} history records")
+                
+                if not history_df.empty:
+                    # Validate transaction_type column exists before styling
+                    if 'transaction_type' in history_df.columns:
+                        st.dataframe(
+                            history_df.style.map(color_action, subset=['transaction_type']),
+                            width='stretch',
+                            hide_index=True
+                        )
+                    else:
+                        st.dataframe(history_df, width='stretch', hide_index=True)
+                else:
+                    logger.info("No history records found")
+                    st.info("No history records found.")
+            except Exception as e:
+                logger.error(f"Error loading history: {str(e)}", exc_info=True)
+                st.error(f"Failed to load history: {str(e)}")
+
+        # --- TAB 4: BULK UPDATE ---
+        with tab4:
+            st.subheader("📥 Bulk Update Inventory from Excel")
+            st.markdown("""
+            Upload an Excel file with the following columns:
+            - **sku**: Product SKU (REQUIRED)
+            - **godown_stock_packs**: Number of packs in stock
+            - **pack_multiplier**: Pieces per pack
+            
+            Example format:
+            | sku | godown_stock_packs | pack_multiplier |
+            |-----|-------------------|-----------------|
+            | BEANIE-FOLD-2PLAIN-BLUE | 10 | 6 |
+            | ARMSLEEVES-FULL-BLACK | 5 | 1 |
+            """)
+            
+            # In Tab 4 (Bulk Update)
+            uploaded_file = st.file_uploader(
+                "Upload stock file",
+                type=['xlsx', 'csv'],
+                key='inv_bulk_upload'   # ← unique key
+            )
+            
+            if uploaded_file is not None:
+                try:
+                    logger.info(f"Processing inventory upload: {uploaded_file.name}")
+                    # Read Excel file
+                    df_upload = pd.read_excel(uploaded_file)
+                    
+                    # Validate required columns
+                    if 'sku' not in df_upload.columns:
+                        logger.error("SKU column missing from upload")
+                        st.error("❌ Missing required column: 'sku'")
+                    else:
+                        # Show preview
+                        st.subheader("Preview of data to import:")
+                        st.dataframe(df_upload.head(10), use_container_width=True)
+                        
+                        # Validation
+                        st.subheader("Validation Results:")
+                        total_rows = len(df_upload)
+                        valid_rows = df_upload[df_upload['sku'].notna() & (df_upload['sku'] != '')].shape[0]
+                        
+                        logger.debug(f"Upload validation: Total={total_rows}, Valid={valid_rows}")
+                        
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Total Rows", total_rows)
+                        c2.metric("Valid Rows", valid_rows)
+                        c3.metric("Invalid Rows", total_rows - valid_rows)
+                        
+                        if valid_rows == 0:
+                            logger.error("No valid records in upload file")
+                            st.error("❌ No valid records found in the file.")
+                        else:
+                            if st.button("✅ Import Data", type="primary"):
+                                try:
+                                    logger.info(f"Starting inventory import with {valid_rows} valid rows...")
+                                    engine = get_engine()
+                                    
+                                    # Clean and prepare data
+                                    df_upload = df_upload[df_upload['sku'].notna() & (df_upload['sku'] != '')].copy()
+                                    df_upload['sku'] = df_upload['sku'].str.strip().str.upper()
+                                    
+                                    # Set default values for missing columns
+                                    if 'godown_stock_packs' not in df_upload.columns:
+                                        df_upload['godown_stock_packs'] = 0
+                                    if 'pack_multiplier' not in df_upload.columns:
+                                        df_upload['pack_multiplier'] = 1
+                                    
+                                    df_upload['godown_stock_packs'] = pd.to_numeric(df_upload['godown_stock_packs'], errors='coerce').fillna(0).astype(int)
+                                    df_upload['pack_multiplier'] = pd.to_numeric(df_upload['pack_multiplier'], errors='coerce').fillna(1).astype(int)
+                                    
+                                    updated_count = 0
+                                    not_found = []
+                                    
+                                    # Use raw connection for direct SQL execution
+                                    conn = engine.raw_connection()
+                                    cursor = conn.cursor()
+                                    
+                                    try:
+                                        for idx, row in df_upload.iterrows():
+                                            sku = row['sku']
+                                            packs = row['godown_stock_packs']
+                                            multiplier = row['pack_multiplier']
+                                            
+                                            # Check if SKU exists
+                                            cursor.execute("SELECT COUNT(*) FROM inventory_master WHERE sku = ?", (sku,))
+                                            exists = cursor.fetchone()[0] > 0
+                                            
+                                            if not exists:
+                                                not_found.append(sku)
+                                                logger.debug(f"SKU not found in database: {sku}")
+                                            else:
+                                                # Update the record
+                                                cursor.execute("""
+                                                    UPDATE inventory_master 
+                                                    SET godown_stock_packs = ?, pack_multiplier = ?
+                                                    WHERE sku = ?
+                                                """, (packs, multiplier, sku))
+                                                updated_count += 1
+                                                logger.debug(f"Updated {sku}: {packs} packs, {multiplier} multiplier")
+                                        
+                                        # Commit all changes
+                                        conn.commit()
+                                        clear_inventory_cache()
+                                        logger.info(f"Inventory import completed: {updated_count} records updated, {len(not_found)} not found")
+                                        
+                                    finally:
+                                        cursor.close()
+                                        conn.close()
+                                    
+                                    st.success(f"✅ Successfully updated {updated_count} records!")
+                                    
+                                    if not_found:
+                                        logger.warning(f"{len(not_found)} SKUs not found: {not_found[:5]}")
+                                        st.warning(f"⚠️ {len(not_found)} SKUs not found in database: {', '.join(not_found[:5])}")
+                                    
+                                    st.rerun()
+                                except Exception as e:
+                                    logger.error(f"Inventory import failed: {str(e)}", exc_info=True)
+                                    st.error(f"❌ Import failed: {str(e)}")
+                                    import traceback
+                                    st.error(traceback.format_exc())
+                except Exception as e:
+                    logger.error(f"Error reading inventory upload file: {str(e)}", exc_info=True)
+                    st.error(f"❌ Error reading file: {str(e)}")
+            
+            # Download template
+            st.divider()
+            st.subheader("📋 Download Template")
+            
+            try:
+                logger.debug("Generating inventory template...")
+                df_template = service.get_godown_inventory()[['sku', 'godown_stock_packs', 'pack_multiplier']]
+                
+                # Create Excel bytes
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                    df_template.to_excel(writer, index=False, sheet_name='Inventory')
+                excel_buffer.seek(0)
+                
+                st.download_button(
+                    label="📥 Download Current Inventory as Excel",
+                    data=excel_buffer.getvalue(),
+                    file_name="inventory_export.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                
+                # Also show download as CSV
+                csv = df_template.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Current Inventory as CSV",
+                    data=csv,
+                    file_name="inventory_export.csv",
+                    mime="text/csv"
+                )
+                logger.info("Inventory template generated successfully")
+            except Exception as e:
+                logger.warning(f"Template generation warning: {str(e)}")
+                st.info(f"Template generation: {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"Critical error in Inventory Manager render: {str(e)}", exc_info=True)
+        st.error(f"Critical error: {e}")
+        st.info("Please try refreshing the page or check the application logs.")
