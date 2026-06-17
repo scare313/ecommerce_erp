@@ -1009,34 +1009,41 @@ Upload an Excel file with the following columns:
             st.error(f"Error generating movement report: {str(e)}")
 
     # ── Navigation: action-first launcher ─────────────────────────────────────
-    # Order foregrounds the two daily warehouse actions (Update, Transfer).
+    # (key, emoji, short label, render fn). Order foregrounds the two daily
+    # warehouse actions (Update, Transfer). Append a tuple to add a feature card.
     sections = [
-        ("update",   "➕ Update Stock",     _s_update),
-        ("transfer", "🔄 Transfer to Shop", _s_transfer),
-        ("balances", "📊 Current Balances", _s_balances),
-        ("history",  "📜 Recent History",   _s_history),
-        ("report",   "📈 Movement Report",  _s_report),
-        ("bulk",     "📥 Bulk Update",      _s_bulk),
+        ("update",   "➕", "Update",   _s_update),
+        ("transfer", "🔄", "Transfer", _s_transfer),
+        ("balances", "📊", "Balances", _s_balances),
+        ("history",  "📜", "History",  _s_history),
+        ("report",   "📈", "Report",   _s_report),
+        ("bulk",     "📥", "Bulk",     _s_bulk),
     ]
-    labels = {key: lbl for key, lbl, _ in sections}
-    funcs  = {key: fn  for key, _, fn in sections}
+    labels = {key: lbl for key, _e, lbl, _ in sections}
+    emojis = {key: e   for key, e, _l, _ in sections}
+    funcs  = {key: fn  for key, _e, _l, fn in sections}
     active = st.session_state.get("inv_section")
 
     if active not in funcs:
-        # Launcher grid — two action cards per row.
+        # Launcher grid — two square icon cards per row.
         st.caption("Choose an action")
         cols = st.columns(2)
-        for i, (key, lbl, _fn) in enumerate(sections):
-            if cols[i % 2].button(lbl, key=f"nav_{key}", use_container_width=True):
-                st.session_state["inv_section"] = key
-                st.rerun()
+        for i, (key, emoji, lbl, _fn) in enumerate(sections):
+            with cols[i % 2]:
+                if st.button(emoji, key=f"nav_{key}", use_container_width=True):
+                    st.session_state["inv_section"] = key
+                    st.rerun()
+                st.markdown(
+                    f"<div class='nav-card-label'>{lbl}</div>",
+                    unsafe_allow_html=True,
+                )
         return
 
     # A section is active — show Back + render only that section.
-    if st.button("← Menu", key="nav_back"):
+    if st.button("⬅️  Back to Menu", key="nav_back", use_container_width=True):
         st.session_state.pop("inv_section", None)
         st.rerun()
-    st.markdown(f"#### {labels[active]}")
+    st.markdown(f"### {emojis[active]} {labels[active]}")
     funcs[active]()
 
 

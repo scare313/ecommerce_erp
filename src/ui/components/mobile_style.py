@@ -15,6 +15,49 @@ import streamlit as st
 # phones in portrait and small tablets without affecting desktop.
 _MOBILE_CSS = """
 <style>
+
+/* ── Launcher cards (all screen sizes) ────────────────────────────────────────
+   Scoped to the nav buttons via Streamlit's per-key container class
+   (st-key-nav_<section>). Turns the plain pill buttons into square icon tiles. */
+[class*="st-key-nav_"] button {
+    aspect-ratio: 1 / 1;
+    height: auto !important;
+    min-height: 0 !important;
+    max-width: 230px;
+    margin: 0 auto;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem !important;        /* large centered emoji */
+    line-height: 1 !important;
+    border-radius: 18px !important;
+    border: 1px solid rgba(0,0,0,0.08) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    transition: transform .08s ease, box-shadow .15s ease;
+}
+[class*="st-key-nav_"] button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+/* Short label printed under each card. */
+.nav-card-label {
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 6px 0 14px;
+    color: var(--text-color, #0f172a);
+}
+/* The Back bar — make it obvious, not a hidden link. */
+.st-key-nav_back button {
+    aspect-ratio: auto !important;
+    max-width: none !important;
+    min-height: 44px !important;
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    background: #f1f5f9 !important;
+}
+
 @media (max-width: 640px) {
 
     /* Reclaim the large default top padding so content is visible without
