@@ -18,6 +18,7 @@ from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
 from src.core.cache import clear_inventory_cache
 from src.ui.components.barcode_scanner import render_camera_scanner
+from src.ui.components.mobile_style import inject_mobile_css
 from sqlalchemy import text
 
 logger = get_logger(__name__)
@@ -1018,6 +1019,7 @@ def render():
     """Render the Inventory Manager page."""
     try:
         logger.info("Rendering Inventory Manager...")
+        inject_mobile_css()
         st.title("📦 Godown Inventory")
 
         try:

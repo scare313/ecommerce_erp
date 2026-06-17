@@ -1,0 +1,14 @@
+[theme]
+base = "light"
+primaryColor = "#16a34a"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f5f9"
+textColor = "#0f172a"
+font = "sans serif"
+
+[server]
+# Streamlit is reverse-proxied behind Caddy (HTTPS). These keep websockets
+# and uploads working smoothly through the proxy.
+enableCORS = false
+enableXsrfProtection = true
+maxUploadSize = 50

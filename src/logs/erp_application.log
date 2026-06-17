@@ -19186,3 +19186,76 @@ src.infrastructure.logger.DataValidationException: No Excel (.xlsx) file found i
 2026-06-10 23:05:56 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
 2026-06-10 23:05:56 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
 2026-06-10 23:05:56 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:20] - Starting ERP Application...
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:20] - Starting ERP Application...
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:20] - Starting ERP Application...
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:20] - Starting ERP Application...
+2026-06-14 21:51:04 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:33] - Starting database initialization. DB Path: C:\Automation\ecommerce_erp\data\db\ecommerce.db
+market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:33] - Starting database initialization. DB Path: C:\Automation\ecommerce_erp\data\db\ecommerce.db
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:39] - Existing database found. Size: 81920 bytes
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:39] - Existing database found. Size: 81920 bytes
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:373] - Migration applied: added inventory_master.reorder_point
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:373] - Migration applied: added inventory_master.reorder_qty
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:373] - Migration applied: added stock_ledger.running_balance
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:249] - Running one-time migration: deprecate orphaned product_master stock columns (godown present=True, shop present=True)
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:304] - ✅ Legacy product_master stock values migrated into inventory_master.
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:316] - Dropped orphaned column product_master.godown_stock_packs
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:316] - Dropped orphaned column product_master.shop_stock_pieces
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:214] - Foreign key enforcement enabled.
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:214] - Foreign key enforcement enabled.
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:420] - ✅ Database is healthy. Found 22 products ready for use.
+2026-06-14 21:51:04 - src.infrastructure.init_db - INFO - [init_db.py:420] - ✅ Database is healthy. Found 22 products ready for use.
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:27] - ✅ Database initialized successfully
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:27] - ✅ Database initialized successfully
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:27] - ✅ Database initialized successfully
+2026-06-14 21:51:04 - __main__ - INFO - [main.py:27] - ✅ Database initialized successfully
+2026-06-14 21:51:05 - src.ui.pages.home_dashboard - INFO - [home_dashboard.py:22] - Rendering Home/KPI Dashboard...
+2026-06-14 21:51:05 - src.core.services.dashboard_service - INFO - [dashboard_service.py:63] - Catalog KPIs: {'total_products': 22, 'total_packs': 22, 'total_listings': 76, 'active_listings': 75, 'marketplaces': 3}
+2026-06-14 21:51:05 - src.core.services.finance_service - INFO - [finance_service.py:66] - Calculating profitability (market filter: ALL)
+2026-06-14 21:51:05 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:05 - src.ui.pages.home_dashboard - INFO - [home_dashboard.py:22] - Rendering Home/KPI Dashboard...
+2026-06-14 21:51:05 - src.core.services.dashboard_service - INFO - [dashboard_service.py:63] - Catalog KPIs: {'total_products': 22, 'total_packs': 22, 'total_listings': 76, 'active_listings': 75, 'marketplaces': 3}
+2026-06-14 21:51:05 - src.core.services.finance_service - INFO - [finance_service.py:66] - Calculating profitability (market filter: ALL)
+2026-06-14 21:51:05 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:05 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:05 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:05 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:05 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:06 - src.core.services.finance_service - INFO - [finance_service.py:231] - ✅ Profitability calculated for 76 listings
+2026-06-14 21:51:06 - src.core.services.finance_service - INFO - [finance_service.py:235] - Summary: Average margin = 53.52%, Total net profit = ₹11594.57
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:123] - Profitability summary: {'avg_margin': 53.522751750185165, 'total_net_profit': 11594.570000000003, 'profitable_skus': 57, 'loss_skus': 19}
+2026-06-14 21:51:06 - src.core.services.gap_service - INFO - [gap_service.py:37] - Generating gap analysis matrix...
+2026-06-14 21:51:06 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:06 - src.core.services.finance_service - INFO - [finance_service.py:231] - ✅ Profitability calculated for 76 listings
+2026-06-14 21:51:06 - src.core.services.finance_service - INFO - [finance_service.py:235] - Summary: Average margin = 53.52%, Total net profit = ₹11594.57
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:123] - Profitability summary: {'avg_margin': 53.522751750185165, 'total_net_profit': 11594.570000000003, 'profitable_skus': 57, 'loss_skus': 19}
+2026-06-14 21:51:06 - src.core.services.gap_service - INFO - [gap_service.py:37] - Generating gap analysis matrix...
+2026-06-14 21:51:06 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:06 - src.core.services.gap_service - INFO - [gap_service.py:113] - ✅ Gap analysis complete: 8 gaps out of 66 combinations (12.1%)
+2026-06-14 21:51:06 - src.core.services.gap_service - INFO - [gap_service.py:113] - ✅ Gap analysis complete: 8 gaps out of 66 combinations (12.1%)
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:154] - Gap summary: {'total_opportunities': 66, 'missing_listings': 8, 'coverage_pct': 87.9}
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:154] - Gap summary: {'total_opportunities': 66, 'missing_listings': 8, 'coverage_pct': 87.9}
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:195] - Inventory summary: {'total_skus_tracked': 3, 'out_of_stock': 0, 'low_stock': 0}
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:195] - Inventory summary: {'total_skus_tracked': 3, 'out_of_stock': 0, 'low_stock': 0}
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:88] - Found 3 marketplaces
+2026-06-14 21:51:06 - src.core.services.dashboard_service - INFO - [dashboard_service.py:88] - Found 3 marketplaces
+2026-06-14 21:51:06 - src.core.services.finance_service - INFO - [finance_service.py:66] - Calculating profitability (market filter: ALL)
+2026-06-14 21:51:06 - src.core.services.finance_service - INFO - [finance_service.py:66] - Calculating profitability (market filter: ALL)
+2026-06-14 21:51:06 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:06 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:06 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:07 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:07 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:07 - src.infrastructure.config_rules - INFO - [config_rules.py:23] - Market rules spreadsheet already exists at C:\Automation\ecommerce_erp\data\config\market_rules.xlsx. Skipping seeding.
+2026-06-14 21:51:07 - src.core.services.finance_service - INFO - [finance_service.py:231] - ✅ Profitability calculated for 76 listings
+2026-06-14 21:51:07 - src.core.services.finance_service - INFO - [finance_service.py:235] - Summary: Average margin = 53.52%, Total net profit = ₹11594.57
+2026-06-14 21:51:07 - src.core.services.finance_service - INFO - [finance_service.py:231] - ✅ Profitability calculated for 76 listings
+2026-06-14 21:51:07 - src.core.services.finance_service - INFO - [finance_service.py:235] - Summary: Average margin = 53.52%, Total net profit = ₹11594.57
+2026-06-14 21:51:11 - __main__ - INFO - [main.py:20] - Starting ERP Application...
+2026-06-14 21:51:11 - __main__ - INFO - [main.py:20] - Starting ERP Application...
+2026-06-14 21:51:12 - src.ui.pages.inventory_manager - INFO - [inventory_manager.py:1020] - Rendering Inventory Manager...
+2026-06-14 21:51:12 - src.ui.pages.inventory_manager - INFO - [inventory_manager.py:256] - Loaded inventory for 22 SKUs
+2026-06-14 21:51:12 - src.ui.pages.inventory_manager - INFO - [inventory_manager.py:553] - Loaded 5 history records
+2026-06-14 21:51:12 - src.ui.pages.inventory_manager - INFO - [inventory_manager.py:807] - Inventory template generated successfully
