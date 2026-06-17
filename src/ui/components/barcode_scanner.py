@@ -33,8 +33,8 @@ _CSS = """
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:-apple-system,BlinkMacSystemFont,'Inter',sans-serif; background:transparent; }
 #wrap { border-radius:16px; overflow:hidden; background:#0f1117; border:1px solid rgba(255,255,255,0.08); }
-#reader { width:100%; }
-#reader video { border-radius:12px !important; }
+#reader { width:100%; max-height:300px; overflow:hidden; display:flex; justify-content:center; }
+#reader video { border-radius:12px !important; width:100% !important; height:300px !important; object-fit:cover !important; }
 #reader__scan_region img { display:none !important; }
 #controls { padding:10px 14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .btn { flex:1; padding:9px 16px; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; transition:all .2s; min-width:110px; }

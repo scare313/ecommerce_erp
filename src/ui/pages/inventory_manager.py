@@ -54,7 +54,7 @@ def _sku_scan_input(
     tab_key: str,
     label: str = "🔍 Scan / Search SKU",
     placeholder: str = "Type SKU or use 📷 camera…",
-    camera_height: int = 360,
+    camera_height: int = 400,
 ) -> str:
     """Renders a SKU text input with an inline 📷 camera toggle button.
 
@@ -243,14 +243,12 @@ def _render_tab2_queue(service: InventoryService):
 def _render_standard_mode(service: InventoryService):
     _init_tab2_queue()
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Current Balances", "➕ Update Stock",
-        "📜 Recent History",   "📥 Bulk Update",
-        "🔄 Transfer to Shop", "📈 Movement Report",
-    ])
+    # Each section is a nested function (bodies unchanged). The launcher/router
+    # at the bottom shows a grid of action cards and renders only the section
+    # the user taps — mobile-first, warehouse-friendly.
 
-    # ── TAB 1: BALANCES ───────────────────────────────────────────────────────
-    with tab1:
+    # ── SECTION: BALANCES ─────────────────────────────────────────────────────
+    def _s_balances():
         try:
             logger.debug("Loading godown inventory balances...")
             df = service.get_godown_inventory()
@@ -362,8 +360,8 @@ def _render_standard_mode(service: InventoryService):
             logger.error(f"Error loading inventory balances: {str(e)}", exc_info=True)
             st.error(f"Error loading inventory: {str(e)}")
 
-    # ── TAB 2: UPDATE STOCK ───────────────────────────────────────────────────
-    with tab2:
+    # ── SECTION: UPDATE STOCK ─────────────────────────────────────────────────
+    def _s_update():
         try:
             df_inv = service.get_inventory_status()
 
@@ -519,7 +517,7 @@ def _render_standard_mode(service: InventoryService):
             st.error(f"Error loading inventory: {str(e)}")
 
     # ── TAB 3: HISTORY ────────────────────────────────────────────────────────
-    with tab3:
+    def _s_history():
         try:
             logger.debug("Loading stock ledger history...")
 
@@ -600,7 +598,7 @@ def _render_standard_mode(service: InventoryService):
             st.error(f"Failed to load history: {str(e)}")
 
     # ── TAB 4: BULK UPDATE ────────────────────────────────────────────────────
-    with tab4:
+    def _s_bulk():
         st.subheader("📥 Bulk Update Inventory from Excel")
         st.markdown("""
 Upload an Excel file with the following columns:
@@ -811,7 +809,7 @@ Upload an Excel file with the following columns:
             st.info(f"Template generation: {str(e)}")
 
     # ── TAB 5: TRANSFER TO SHOP ───────────────────────────────────────────────
-    with tab5:
+    def _s_transfer():
         try:
             logger.debug("Loading godown inventory for transfer form...")
             df_godown = service.get_godown_inventory()
@@ -890,8 +888,8 @@ Upload an Excel file with the following columns:
             logger.error(f"Error in transfer tab: {str(e)}", exc_info=True)
             st.error(f"Error loading transfer form: {str(e)}")
 
-    # ── TAB 6: MOVEMENT REPORT ────────────────────────────────────────────────
-    with tab6:
+    # ── SECTION: MOVEMENT REPORT ──────────────────────────────────────────────
+    def _s_report():
         try:
             logger.debug("Loading Movement Report...")
             st.markdown("#### 📈 Stock Movement Report")
@@ -1009,6 +1007,37 @@ Upload an Excel file with the following columns:
         except Exception as e:
             logger.error(f"Error in Movement Report tab: {str(e)}", exc_info=True)
             st.error(f"Error generating movement report: {str(e)}")
+
+    # ── Navigation: action-first launcher ─────────────────────────────────────
+    # Order foregrounds the two daily warehouse actions (Update, Transfer).
+    sections = [
+        ("update",   "➕ Update Stock",     _s_update),
+        ("transfer", "🔄 Transfer to Shop", _s_transfer),
+        ("balances", "📊 Current Balances", _s_balances),
+        ("history",  "📜 Recent History",   _s_history),
+        ("report",   "📈 Movement Report",  _s_report),
+        ("bulk",     "📥 Bulk Update",      _s_bulk),
+    ]
+    labels = {key: lbl for key, lbl, _ in sections}
+    funcs  = {key: fn  for key, _, fn in sections}
+    active = st.session_state.get("inv_section")
+
+    if active not in funcs:
+        # Launcher grid — two action cards per row.
+        st.caption("Choose an action")
+        cols = st.columns(2)
+        for i, (key, lbl, _fn) in enumerate(sections):
+            if cols[i % 2].button(lbl, key=f"nav_{key}", use_container_width=True):
+                st.session_state["inv_section"] = key
+                st.rerun()
+        return
+
+    # A section is active — show Back + render only that section.
+    if st.button("← Menu", key="nav_back"):
+        st.session_state.pop("inv_section", None)
+        st.rerun()
+    st.markdown(f"#### {labels[active]}")
+    funcs[active]()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
