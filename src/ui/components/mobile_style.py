@@ -28,12 +28,25 @@ _MOBILE_CSS = """
     display: flex !important;
     align-items: center;
     justify-content: center;
-    font-size: 3rem !important;        /* large centered emoji */
+    font-size: 4.2rem !important;      /* large centered emoji */
     line-height: 1 !important;
     border-radius: 18px !important;
     border: 1px solid rgba(0,0,0,0.08) !important;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     transition: transform .08s ease, box-shadow .15s ease;
+}
+
+/* Keep the launcher a true 2-up grid even on phones (Streamlit otherwise
+   stacks columns vertically below ~640px). Scoped to the launcher container
+   so section forms keep their normal responsive stacking. */
+.st-key-inv_launcher [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+}
+.st-key-inv_launcher [data-testid="stColumn"] {
+    min-width: 0 !important;
+    flex: 1 1 0 !important;
+    width: 50% !important;
 }
 [class*="st-key-nav_"] button:hover {
     transform: translateY(-2px);

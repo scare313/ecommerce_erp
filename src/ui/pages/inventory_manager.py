@@ -1025,18 +1025,20 @@ Upload an Excel file with the following columns:
     active = st.session_state.get("inv_section")
 
     if active not in funcs:
-        # Launcher grid — two square icon cards per row.
+        # Launcher grid — two square icon cards per row (kept 2-up on mobile
+        # via the .st-key-inv_launcher CSS scope).
         st.caption("Choose an action")
-        cols = st.columns(2)
-        for i, (key, emoji, lbl, _fn) in enumerate(sections):
-            with cols[i % 2]:
-                if st.button(emoji, key=f"nav_{key}", use_container_width=True):
-                    st.session_state["inv_section"] = key
-                    st.rerun()
-                st.markdown(
-                    f"<div class='nav-card-label'>{lbl}</div>",
-                    unsafe_allow_html=True,
-                )
+        with st.container(key="inv_launcher"):
+            cols = st.columns(2)
+            for i, (key, emoji, lbl, _fn) in enumerate(sections):
+                with cols[i % 2]:
+                    if st.button(emoji, key=f"nav_{key}", use_container_width=True):
+                        st.session_state["inv_section"] = key
+                        st.rerun()
+                    st.markdown(
+                        f"<div class='nav-card-label'>{lbl}</div>",
+                        unsafe_allow_html=True,
+                    )
         return
 
     # A section is active — show Back + render only that section.
