@@ -19,6 +19,7 @@ from src.infrastructure.logger import get_logger
 from src.core.cache import clear_inventory_cache
 from src.ui.components.barcode_scanner import render_camera_scanner
 from src.ui.components.mobile_style import inject_mobile_css
+from src.ui.components.errors import show_error
 from sqlalchemy import text
 
 logger = get_logger(__name__)
@@ -351,14 +352,9 @@ def _render_standard_mode(service: InventoryService):
                                 )
                                 st.rerun()
                             except Exception as e:
-                                logger.error(
-                                    f"Failed to set reorder levels for {r_sku}: {e}",
-                                    exc_info=True,
-                                )
-                                st.error(f"Failed to save: {e}")
+                                show_error(logger, f"Failed to save reorder levels for {r_sku}", e)
         except Exception as e:
-            logger.error(f"Error loading inventory balances: {str(e)}", exc_info=True)
-            st.error(f"Error loading inventory: {str(e)}")
+            show_error(logger, "Error loading inventory balances", e)
 
     # ── SECTION: UPDATE STOCK ─────────────────────────────────────────────────
     def _s_update():
@@ -441,8 +437,7 @@ def _render_standard_mode(service: InventoryService):
                             st.session_state.pop("sku_typed_tab2", None)
                             st.rerun()
                         except Exception as e:
-                            logger.error(f"Error updating godown: {str(e)}", exc_info=True)
-                            st.error(f"Update failed: {str(e)}")
+                            show_error(logger, "Error updating godown stock", e)
 
                     if submit_queue:
                         st.session_state.pop("tab2_success", None)
@@ -492,8 +487,7 @@ def _render_standard_mode(service: InventoryService):
                             st.session_state.pop("sku_typed_tab2", None)
                             st.rerun()
                         except Exception as e:
-                            logger.error(f"Error updating shop: {str(e)}", exc_info=True)
-                            st.error(f"Update failed: {str(e)}")
+                            show_error(logger, "Error updating shop stock", e)
 
                     if submit_queue:
                         st.session_state.pop("tab2_success", None)
@@ -513,8 +507,7 @@ def _render_standard_mode(service: InventoryService):
                 _render_tab2_queue(service)
 
         except Exception as e:
-            logger.error(f"Error in inventory update tab: {str(e)}", exc_info=True)
-            st.error(f"Error loading inventory: {str(e)}")
+            show_error(logger, "Error loading the update stock form", e)
 
     # ── TAB 3: HISTORY ────────────────────────────────────────────────────────
     def _s_history():
@@ -594,8 +587,7 @@ def _render_standard_mode(service: InventoryService):
                 logger.info("No history records found")
                 st.info("No history records found.")
         except Exception as e:
-            logger.error(f"Error loading history: {str(e)}", exc_info=True)
-            st.error(f"Failed to load history: {str(e)}")
+            show_error(logger, "Failed to load history", e)
 
     # ── TAB 4: BULK UPDATE ────────────────────────────────────────────────────
     def _s_bulk():
@@ -768,17 +760,11 @@ Upload an Excel file with the following columns:
                                     )
                                 st.rerun()
                             except Exception as e:
-                                logger.error(
-                                    f"Inventory import failed: {str(e)}", exc_info=True
-                                )
-                                st.error(f"❌ Import failed: {str(e)}")
+                                show_error(logger, "Inventory import failed", e)
                                 import traceback
                                 st.error(traceback.format_exc())
             except Exception as e:
-                logger.error(
-                    f"Error reading inventory upload file: {str(e)}", exc_info=True
-                )
-                st.error(f"❌ Error reading file: {str(e)}")
+                show_error(logger, "Error reading the uploaded file", e)
 
         st.divider()
         st.subheader("📋 Download Template")
@@ -880,13 +866,9 @@ Upload an Excel file with the following columns:
                             st.session_state.pop("sku_typed_tab5", None)
                             st.rerun()
                         except Exception as e:
-                            logger.error(
-                                f"Transfer failed for {transfer_sku}: {str(e)}", exc_info=True
-                            )
-                            st.error(f"Transfer failed: {str(e)}")
+                            show_error(logger, f"Transfer failed for {transfer_sku}", e)
         except Exception as e:
-            logger.error(f"Error in transfer tab: {str(e)}", exc_info=True)
-            st.error(f"Error loading transfer form: {str(e)}")
+            show_error(logger, "Error loading the transfer form", e)
 
     # ── SECTION: MOVEMENT REPORT ──────────────────────────────────────────────
     def _s_report():
@@ -1005,8 +987,7 @@ Upload an Excel file with the following columns:
                             mime="text/csv",
                         )
         except Exception as e:
-            logger.error(f"Error in Movement Report tab: {str(e)}", exc_info=True)
-            st.error(f"Error generating movement report: {str(e)}")
+            show_error(logger, "Error generating movement report", e)
 
     # ── Navigation: action-first launcher ─────────────────────────────────────
     # (key, emoji, short label, render fn). Order foregrounds the two daily
@@ -1064,13 +1045,11 @@ def render():
             service = InventoryService()
             logger.debug("InventoryService initialized")
         except Exception as e:
-            logger.error(f"Failed to initialize InventoryService: {str(e)}", exc_info=True)
-            st.error(f"Failed to initialize service: {str(e)}")
+            show_error(logger, "Failed to initialize inventory service", e)
             return
 
         _render_standard_mode(service)
 
     except Exception as e:
-        logger.error(f"Critical error in Inventory Manager render: {str(e)}", exc_info=True)
-        st.error(f"Critical error: {e}")
+        show_error(logger, "Critical error in Inventory Manager", e)
         st.info("Please try refreshing the page or check the application logs.")

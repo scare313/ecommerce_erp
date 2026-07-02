@@ -15,6 +15,7 @@ from src.core.services.bulk_service import BulkService
 from src.core.services.supplier_service import SupplierService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
+from src.ui.components.errors import show_error
 from src.core.cache import clear_catalog_cache
 from src.core.cache import get_marketplaces
 
@@ -33,8 +34,7 @@ def render():
             engine = get_engine()
             logger.debug("Services initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize services: {str(e)}", exc_info=True)
-            st.error(f"Failed to initialize services: {str(e)}")
+            show_error(logger, "Failed to initialize services", e)
             return
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["1. Products", "2. Packs", "3. Listings", "⚙️ Config & Rules", "📥 Bulk Operations"])
@@ -126,8 +126,7 @@ def render():
                             st.success(f"Created {sku}")
                             st.rerun()
                         except Exception as e:
-                            logger.error(f"Error creating product {sku}: {str(e)}", exc_info=True)
-                            st.error(f"Error: {e}")
+                            show_error(logger, f"Error creating product {sku}", e)
 
             # View/Edit Grid
             try:
@@ -141,11 +140,9 @@ def render():
                         logger.info(f"Product changes saved: {len(edited_prod)} rows")
                         st.success("Saved!")
                     except Exception as e:
-                        logger.error(f"Error saving product changes: {str(e)}", exc_info=True)
-                        st.error(f"Error saving: {e}")
+                        show_error(logger, "Error saving product changes", e)
             except Exception as e:
-                logger.error(f"Error loading products: {str(e)}", exc_info=True)
-                st.error(f"Error loading products: {e}")
+                show_error(logger, "Error loading products", e)
 
         # --- TAB 2: PACK MASTER ---
         with tab2:
@@ -185,8 +182,7 @@ def render():
                             st.success(f"Created Pack {pack_sku}")
                             st.rerun()
                         except Exception as e:
-                            logger.error(f"Error creating pack {pack_sku}: {str(e)}", exc_info=True)
-                            st.error(f"Error: {e}")
+                            show_error(logger, f"Error creating pack {pack_sku}", e)
 
             # View/Edit Grid
             try:
@@ -200,11 +196,9 @@ def render():
                         logger.info(f"Pack changes saved: {len(edited_pack)} rows")
                         st.success("Saved!")
                     except Exception as e:
-                        logger.error(f"Error saving pack changes: {str(e)}", exc_info=True)
-                        st.error(f"Error saving: {e}")
+                        show_error(logger, "Error saving pack changes", e)
             except Exception as e:
-                logger.error(f"Error loading packs: {str(e)}", exc_info=True)
-                st.error(f"Error loading packs: {e}")
+                show_error(logger, "Error loading packs", e)
 
         # --- TAB 3: CHANNEL LISTINGS ---
         with tab3:
@@ -246,8 +240,7 @@ def render():
                             logger.warning(f"Validation error creating listing: {str(e)}")
                             st.error(f"❌ {str(e)}")
                         except Exception as e:
-                            logger.error(f"Error creating listing: {str(e)}", exc_info=True)
-                            st.error(f"Error: {e}")
+                            show_error(logger, "Error creating listing", e)
 
             # View/Edit Grid
             try:
@@ -267,11 +260,9 @@ def render():
                         logger.info(f"Listing changes saved: {len(edited_list)} rows")
                         st.success("Saved!")
                     except Exception as e:
-                        logger.error(f"Error saving listing changes: {str(e)}", exc_info=True)
-                        st.error(f"Error saving: {e}")
+                        show_error(logger, "Error saving listing changes", e)
             except Exception as e:
-                logger.error(f"Error loading listings: {str(e)}", exc_info=True)
-                st.error(f"Error loading listings: {e}")
+                show_error(logger, "Error loading listings", e)
 
         # --- TAB 4: CONFIG & RULES ---
         with tab4:
@@ -298,11 +289,9 @@ def render():
                         logger.info(f"Configuration saved for {selected_sheet}: {len(edited_rules)} rows")
                         st.success(f"Updated {rule_choice}")
                     except Exception as e:
-                        logger.error(f"Error saving {rule_choice}: {str(e)}", exc_info=True)
-                        st.error(f"Error saving: {e}")
+                        show_error(logger, f"Error saving {rule_choice}", e)
             except Exception as e:
-                logger.error(f"Error loading {rule_choice}: {str(e)}", exc_info=True)
-                st.error(f"Error loading {rule_choice}: {e}")
+                show_error(logger, f"Error loading {rule_choice}", e)
             
             # ============================================================
             # MARKETPLACE MANAGEMENT (inside tab4 — Config & Rules)
@@ -331,8 +320,7 @@ def render():
                 else:
                     st.info("No marketplaces configured yet. Add your first one below.")
             except Exception as e:
-                logger.error(f"Failed to load existing marketplaces: {str(e)}", exc_info=True)
-                st.error(f"Could not load existing marketplaces: {str(e)}")
+                show_error(logger, "Failed to load existing marketplaces", e)
                 existing_df = pd.DataFrame()
 
             # Two-column layout: Add (left) | Remove (right)
@@ -424,8 +412,7 @@ def render():
                                 st.rerun()
                             
                             except Exception as e:
-                                logger.error(f"Failed to add marketplace '{new_mkt_clean}': {str(e)}", exc_info=True)
-                                st.error(f"❌ Failed to add marketplace: {str(e)}")
+                                show_error(logger, f"Failed to add marketplace '{new_mkt_clean}'", e)
 
             # ---------- REMOVE MARKETPLACE ----------
             with col_remove:
@@ -499,13 +486,8 @@ def render():
                                         shipping_df = shipping_df[shipping_df['marketplace'] != mkt_to_remove]
                                         save_excel_sheet("Shipping_Rules", shipping_df)
                                         
-                                        with engine.connect() as conn:
-                                            conn.execute(
-                                                text("DELETE FROM channel_listings WHERE marketplace = :m"),
-                                                {"m": mkt_to_remove}
-                                            )
-                                            conn.commit()
-                                        logger.info(f"Cascade-deleted related rows for {mkt_to_remove}")
+                                        deleted = service.delete_listings_for_marketplace(mkt_to_remove)
+                                        logger.info(f"Cascade-deleted {deleted} listing(s) for {mkt_to_remove}")
                                     
                                     logger.info(f"✅ Marketplace '{mkt_to_remove}' removed")
                                     st.success(f"✅ Marketplace **{mkt_to_remove}** removed successfully.")
@@ -519,8 +501,7 @@ def render():
                                     st.rerun()
                                 
                                 except Exception as e:
-                                    logger.error(f"Failed to remove marketplace '{mkt_to_remove}': {str(e)}", exc_info=True)
-                                    st.error(f"❌ Failed to remove marketplace: {str(e)}")
+                                    show_error(logger, f"Failed to remove marketplace '{mkt_to_remove}'", e)
             
 
         # --- TAB 5: BULK OPERATIONS (EXCEL) ---
@@ -549,8 +530,7 @@ def render():
                         )
                         logger.info("Catalog export successful")
                     except Exception as e:
-                        logger.error(f"Error exporting catalog: {str(e)}", exc_info=True)
-                        st.error(f"Error exporting: {e}")
+                        show_error(logger, "Error exporting catalog", e)
 
             with col2:
                 st.markdown("### 2. Import Data")
@@ -569,9 +549,7 @@ def render():
                                 logger.error(f"Catalog import failed: {log}")
                                 st.error(f"Failed: {log}")
                         except Exception as e:
-                            logger.error(f"Error during catalog import: {str(e)}", exc_info=True)
-                            st.error(f"Error: {e}")
+                            show_error(logger, "Error during catalog import", e)
     
     except Exception as e:
-        logger.error(f"Critical error in Data Manager render: {str(e)}", exc_info=True)
-        st.error(f"Critical error: {e}")
+        show_error(logger, "Critical error in Data Manager", e)

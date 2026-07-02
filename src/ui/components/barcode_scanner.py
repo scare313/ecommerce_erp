@@ -21,9 +21,19 @@ Secure-context requirement:
 
 Input clearing is handled by the caller via a counter-based widget key —
 do NOT set st.session_state[key] inside this component.
+
+The Html5-QRCode library is vendored (src/ui/static/vendor/html5-qrcode.min.js)
+and inlined into the scanner HTML rather than loaded from a CDN at runtime —
+see that folder's NOTICE.md for version/provenance. This keeps the core
+scanning action working without a third-party network dependency.
 """
+from pathlib import Path
+
 import streamlit as st
 from streamlit.components.v1 import html as components_html
+
+_VENDOR_DIR = Path(__file__).resolve().parent.parent / "static" / "vendor"
+_HTML5_QRCODE_JS = (_VENDOR_DIR / "html5-qrcode.min.js").read_text(encoding="utf-8")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Camera Scanner HTML  (auto-start + auto-confirm, no manual steps)
@@ -181,7 +191,7 @@ _CAMERA_SCANNER_HTML = f"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script>{_HTML5_QRCODE_JS}</script>
   <style>{_CSS}</style>
 </head>
 <body>

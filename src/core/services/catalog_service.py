@@ -207,6 +207,42 @@ class CatalogService:
             logger.error(f"Error adding listing {data.get('channel_sku', 'UNKNOWN')}: {str(e)}", exc_info=True)
             raise
 
+    def delete_listings_for_marketplace(self, marketplace: str) -> int:
+        """
+        Delete all channel listings for a marketplace. Used when a marketplace
+        is removed with cascade delete enabled.
+
+        Args:
+            marketplace: Marketplace name to delete listings for
+
+        Returns:
+            int: Number of listing rows deleted
+
+        Raises:
+            DataValidationException: If marketplace is empty
+            DatabaseException: If the delete fails
+        """
+        try:
+            if not marketplace:
+                raise ValueError("marketplace is required")
+
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    text("DELETE FROM channel_listings WHERE marketplace = :m"),
+                    {"m": marketplace},
+                )
+                deleted = result.rowcount
+
+            logger.info(f"Deleted {deleted} listing(s) for marketplace: {marketplace}")
+            return deleted
+
+        except ValueError as e:
+            logger.error(f"Validation error during listing delete: {str(e)}", exc_info=True)
+            raise DataValidationException(str(e)) from e
+        except Exception as e:
+            logger.error(f"Error deleting listings for {marketplace}: {str(e)}", exc_info=True)
+            raise DatabaseException(f"Failed to delete listings for {marketplace}: {str(e)}") from e
+
     def _insert(self, table, data):
         """
         Generic insert helper for all catalog operations.
