@@ -1,0 +1,20 @@
+# ERP database backup — systemd oneshot (Roadmap E2).
+# Install on the VPS: see DEPLOY.md. Paths assume the production layout
+# (/home/ubuntu/ecommerce_erp with the venv at .venv). Adjust if yours differs.
+#
+# Override backup behaviour with Environment= lines below (see backup_db.py),
+# e.g. Environment=ERP_BACKUP_OFFSITE_CMD=rclone copy "{snapshot}" remote:erp-backups
+
+[Unit]
+Description=ERP SQLite database backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ecommerce_erp
+ExecStart=/home/ubuntu/ecommerce_erp/.venv/bin/python /home/ubuntu/ecommerce_erp/scripts/backup_db.py
+# Example overrides (uncomment / edit as needed):
+# Environment=ERP_BACKUP_DIR=/home/ubuntu/erp_backups
+# Environment=ERP_BACKUP_RETENTION_DAYS=14
+# Environment=ERP_BACKUP_OFFSITE_CMD=rclone copy "{snapshot}" remote:erp-backups
