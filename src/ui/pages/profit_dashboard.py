@@ -4,8 +4,8 @@ import plotly.express as px
 from src.core.services.finance_service import FinanceService
 from src.infrastructure.logger import get_logger
 from src.ui.components.errors import show_error
-from src.core.cache import get_profitability_cached
-from src.core.cache import get_marketplaces
+from src.ui.cache_adapter import get_profitability_cached
+from src.ui.cache_adapter import get_marketplaces
 
 logger = get_logger(__name__)
 

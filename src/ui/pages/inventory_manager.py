@@ -16,7 +16,7 @@ from datetime import date, timedelta
 from src.core.services.inventory_service import InventoryService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
-from src.core.cache import clear_inventory_cache
+from src.ui.cache_adapter import clear_inventory_cache
 from src.ui.components.barcode_scanner import render_camera_scanner
 from src.ui.components.mobile_style import inject_mobile_css
 from src.ui.components.errors import show_error

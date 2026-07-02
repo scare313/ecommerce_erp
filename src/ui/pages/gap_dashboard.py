@@ -11,7 +11,7 @@ import pandas as pd
 from src.core.services.gap_service import GapService
 from src.infrastructure.logger import get_logger
 from src.ui.components.errors import show_error
-from src.core.cache import get_gap_matrix_cached
+from src.ui.cache_adapter import get_gap_matrix_cached
 
 logger = get_logger(__name__)
 

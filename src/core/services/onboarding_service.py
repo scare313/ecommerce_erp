@@ -24,7 +24,6 @@ from src.infrastructure.logger import (
     DataValidationException,
     ServiceException,
 )
-from src.core.cache import clear_all_caches
 
 logger = get_logger(__name__)
 
@@ -484,6 +483,10 @@ class OnboardingService:
         Returns:
             dict: Summary of commit operation
                   {products_upserted, packs_upserted, listings_upserted}
+
+        Note:
+            Does not invalidate any UI cache — that's the caller's
+            responsibility after a successful commit (see onboarding_wizard.py).
         """
         try:
             logger.info("Starting catalog commit (upsert)...")
@@ -617,14 +620,9 @@ class OnboardingService:
 
             # Transaction committed automatically via engine.begin() context manager
 
-            # ---------- 4. INVALIDATE CACHES ----------
-            # Critical: clear caches so dashboards see new data immediately [10]
-            try:
-                clear_all_caches()
-                logger.debug("Caches cleared after commit")
-            except Exception as e:
-                # Cache failure should not fail the commit
-                logger.warning(f"Cache clear failed (non-fatal): {str(e)}")
+            # Cache invalidation is the caller's responsibility (UI concern,
+            # not core business logic) — see onboarding_wizard.py, which
+            # clears caches after a successful commit_catalog() call.
 
             summary = {
                 'products_upserted': products_upserted,

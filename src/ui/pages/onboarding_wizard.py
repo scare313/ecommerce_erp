@@ -21,6 +21,7 @@ from src.core.services.onboarding_service import OnboardingService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
 from src.ui.components.errors import show_error
+from src.ui.cache_adapter import clear_all_caches
 from sqlalchemy import text
 
 logger = get_logger(__name__)
@@ -960,6 +961,15 @@ def _execute_commit():
                 grouped_df=grouped_df,
                 name_resolutions=resolutions,
             )
+
+            # Cache invalidation so dashboards see new data immediately.
+            # Non-fatal: a cache-clear failure shouldn't hide a successful commit.
+            try:
+                clear_all_caches()
+                logger.debug("Caches cleared after commit")
+            except Exception as cache_err:
+                logger.warning(f"Cache clear failed (non-fatal): {cache_err}")
+
             st.session_state[SS_COMMIT_SUMMARY] = summary
             st.session_state[SS_STEP] = 7
             logger.info(f"✅ Commit successful: {summary}")

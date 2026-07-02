@@ -288,6 +288,7 @@ def patch_get_engine(seeded_engine, monkeypatch):
         "src.core.services.finance_service.get_engine",
         "src.core.services.gap_service.get_engine",
         "src.core.services.catalog_service.get_engine",
+        "src.core.data_access.get_engine",
     ]
     for target in targets:
         try:

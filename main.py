@@ -63,7 +63,7 @@ try:
 
     st.sidebar.divider()
     if st.sidebar.button("🔄 Refresh Data"):
-        from src.core.cache import clear_all_caches
+        from src.ui.cache_adapter import clear_all_caches
         clear_all_caches()
         st.rerun()
 

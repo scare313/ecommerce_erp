@@ -16,8 +16,8 @@ from src.core.services.supplier_service import SupplierService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
 from src.ui.components.errors import show_error
-from src.core.cache import clear_catalog_cache
-from src.core.cache import get_marketplaces
+from src.ui.cache_adapter import clear_catalog_cache
+from src.ui.cache_adapter import get_marketplaces
 
 logger = get_logger(__name__)
 
