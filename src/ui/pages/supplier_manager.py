@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 from src.core.services.supplier_service import SupplierService
 from src.infrastructure.logger import get_logger, DataValidationException
+from src.ui.components.errors import show_error
 
 logger = get_logger(__name__)
 
@@ -29,8 +30,7 @@ def render():
         try:
             service = SupplierService()
         except Exception as e:
-            logger.error(f"Failed to initialize SupplierService: {e}", exc_info=True)
-            st.error(f"Failed to initialize service: {e}")
+            show_error(logger, "Failed to initialize supplier service", e)
             return
 
         tab1, tab2, tab3 = st.tabs([
@@ -70,8 +70,7 @@ def render():
                     st.caption(f"Showing {total} supplier(s) ({active} active, {inactive} inactive).")
 
             except Exception as e:
-                logger.error(f"Tab 1 error: {e}", exc_info=True)
-                st.error(f"Error loading suppliers: {e}")
+                show_error(logger, "Error loading suppliers", e)
 
         # ── TAB 2: ADD SUPPLIER ───────────────────────────────────────────────
         with tab2:
@@ -121,12 +120,10 @@ def render():
                     except DataValidationException as e:
                         st.error(str(e))
                     except Exception as e:
-                        logger.error(f"add_supplier error: {e}", exc_info=True)
-                        st.error(f"Unexpected error: {e}")
+                        show_error(logger, "Error adding supplier", e)
 
             except Exception as e:
-                logger.error(f"Tab 2 error: {e}", exc_info=True)
-                st.error(f"Error in Add Supplier tab: {e}")
+                show_error(logger, "Error in the Add Supplier tab", e)
 
         # ── TAB 3: MANAGE SUPPLIER ────────────────────────────────────────────
         with tab3:
@@ -196,8 +193,7 @@ def render():
                             except DataValidationException as e:
                                 st.error(str(e))
                             except Exception as e:
-                                logger.error(f"update_supplier error: {e}", exc_info=True)
-                                st.error(f"Unexpected error: {e}")
+                                show_error(logger, "Error updating supplier", e)
 
                         st.divider()
 
@@ -239,8 +235,7 @@ def render():
                                         except DataValidationException as e:
                                             st.error(str(e))
                                         except Exception as e:
-                                            logger.error(f"deactivate_supplier error: {e}", exc_info=True)
-                                            st.error(f"Unexpected error: {e}")
+                                            show_error(logger, "Error deactivating supplier", e)
 
                             else:
                                 # Bulk reassign path — must pick a target before deactivating.
@@ -305,13 +300,10 @@ def render():
                                             except DataValidationException as e:
                                                 st.error(str(e))
                                             except Exception as e:
-                                                logger.error(f"bulk_reassign error: {e}", exc_info=True)
-                                                st.error(f"Unexpected error: {e}")
+                                                show_error(logger, "Error reassigning and deactivating supplier", e)
 
             except Exception as e:
-                logger.error(f"Tab 3 error: {e}", exc_info=True)
-                st.error(f"Error in Manage Supplier tab: {e}")
+                show_error(logger, "Error in the Manage Supplier tab", e)
 
     except Exception as e:
-        logger.critical(f"Supplier Manager render failed: {e}", exc_info=True)
-        st.error(f"Page failed to render: {e}")
+        show_error(logger, "Supplier Manager failed to render", e)

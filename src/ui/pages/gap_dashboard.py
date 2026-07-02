@@ -10,6 +10,7 @@ import streamlit as st
 import pandas as pd
 from src.core.services.gap_service import GapService
 from src.infrastructure.logger import get_logger
+from src.ui.components.errors import show_error
 from src.core.cache import get_gap_matrix_cached
 
 logger = get_logger(__name__)
@@ -27,8 +28,7 @@ def render():
             df = get_gap_matrix_cached()
             logger.info(f"Gap matrix retrieved: {len(df)} rows")
         except Exception as e:
-            logger.error(f"Error loading gap data: {str(e)}", exc_info=True)
-            st.error(f"Error loading data: {e}")
+            show_error(logger, "Error loading gap analysis data", e)
             return
 
         if df.empty:
@@ -103,5 +103,4 @@ def render():
 
         st.caption(f"Showing {len(pivot_table)} packs × {len(pivot_table.columns)} marketplaces")
     except Exception as e:
-        logger.error(f"Critical error in Gap Dashboard render: {str(e)}", exc_info=True)
-        st.error(f"Critical error: {e}")
+        show_error(logger, "Critical error in Gap Analysis Dashboard", e)

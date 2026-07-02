@@ -13,6 +13,7 @@ if str(project_root) not in sys.path:
 
 from src.infrastructure.init_db import init_database
 from src.infrastructure.logger import get_logger
+from src.ui.components.errors import show_error
 
 logger = get_logger(__name__)
 
@@ -30,8 +31,7 @@ try:
                 st.error("❌ Failed to initialize database. Please check logs for details.")
                 st.stop()
         except Exception as e:
-            logger.error(f"Database initialization failed: {str(e)}", exc_info=True)
-            st.error(f"❌ Critical error: Failed to initialize database.\n\nError: {str(e)}")
+            show_error(logger, "Failed to initialize the database", e)
             st.stop()
     
     st.set_page_config(page_title="Ecommerce ERP", layout="wide")
@@ -101,8 +101,7 @@ try:
             from src.ui.pages import inventory_manager
             inventory_manager.render()
     except Exception as e:
-        logger.error(f"Error rendering page '{page}': {str(e)}", exc_info=True)
-        st.error(f"❌ An error occurred while loading the page.\n\nError: {str(e)}")
+        show_error(logger, f"Error loading the '{page}' page", e)
         st.info("Please check the logs for more details or try refreshing the page.")
 
 except Exception as e:

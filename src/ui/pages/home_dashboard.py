@@ -12,6 +12,7 @@ import pandas as pd
 import plotly.express as px
 from src.core.services.dashboard_service import DashboardService
 from src.infrastructure.logger import get_logger
+from src.ui.components.errors import show_error
 
 logger = get_logger(__name__)
 
@@ -31,8 +32,7 @@ def render():
             service = DashboardService()
             logger.debug("DashboardService initialized")
         except Exception as e:
-            logger.error(f"Failed to initialize DashboardService: {str(e)}", exc_info=True)
-            st.error(f"Failed to initialize dashboard service: {str(e)}")
+            show_error(logger, "Failed to initialize dashboard service", e)
             return
 
         # ============================================================
@@ -198,5 +198,4 @@ def render():
         st.caption("Use the sidebar to navigate to any dashboard.")
 
     except Exception as e:
-        logger.error(f"Critical error in Home Dashboard render: {str(e)}", exc_info=True)
-        st.error(f"❌ Critical error rendering Home Dashboard: {e}")
+        show_error(logger, "Critical error rendering Home Dashboard", e)

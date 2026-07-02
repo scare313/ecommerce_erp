@@ -3,6 +3,7 @@ import streamlit as st
 import plotly.express as px
 from src.core.services.finance_service import FinanceService
 from src.infrastructure.logger import get_logger
+from src.ui.components.errors import show_error
 from src.core.cache import get_profitability_cached
 from src.core.cache import get_marketplaces
 
@@ -20,8 +21,7 @@ def render():
             service = FinanceService()
             logger.debug("FinanceService initialized")
         except Exception as e:
-            logger.error(f"Failed to initialize FinanceService: {str(e)}", exc_info=True)
-            st.error(f"Failed to initialize service: {str(e)}")
+            show_error(logger, "Failed to initialize finance service", e)
             return
 
         # --- Marketplace selector ---
@@ -36,8 +36,7 @@ def render():
         try:
             df = get_profitability_cached(marketplace=mkt)
         except Exception as e:
-            logger.error(f"Failed to calculate profitability: {str(e)}", exc_info=True)
-            st.error(f"Failed to load profitability data: {str(e)}")
+            show_error(logger, "Failed to calculate profitability", e)
             return
 
         if df is None or df.empty:
@@ -108,5 +107,4 @@ def render():
         logger.info(f"Displayed profitability for {len(view_df)} SKUs")
 
     except Exception as e:
-        logger.error(f"Error in Profit Dashboard render: {str(e)}", exc_info=True)
-        st.error(f"❌ An unexpected error occurred: {str(e)}")
+        show_error(logger, "Error in Profit Dashboard", e)

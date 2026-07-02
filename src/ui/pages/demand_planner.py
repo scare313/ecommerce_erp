@@ -10,6 +10,7 @@ import streamlit as st
 import pandas as pd
 from src.core.services.inventory_service import InventoryService
 from src.infrastructure.logger import get_logger
+from src.ui.components.errors import show_error
 from datetime import datetime
 import io
 
@@ -29,8 +30,7 @@ def render():
             service = InventoryService()
             logger.debug("InventoryService initialized")
         except Exception as e:
-            logger.error(f"Failed to initialize InventoryService: {str(e)}", exc_info=True)
-            st.error(f"Failed to initialize service: {str(e)}")
+            show_error(logger, "Failed to initialize inventory service", e)
             return
 
         # --- SIDEBAR CONFIG ---
@@ -165,8 +165,7 @@ def render():
                             )
                             logger.info("Purchase plan download button created successfully")
                         except Exception as e:
-                            logger.error(f"Error creating download file: {str(e)}", exc_info=True)
-                            st.error(f"Error preparing download: {e}")
+                            show_error(logger, "Error preparing the download file", e)
 
                     with tab2:
                         if not orphans_df.empty:
@@ -178,9 +177,7 @@ def render():
                             st.info("All sales mapped successfully to database!")
 
                 except Exception as e:
-                    logger.error(f"Error during purchase plan generation: {str(e)}", exc_info=True)
-                    st.error(f"Error generating plan: {str(e)}")
-                    
+                    show_error(logger, "Error generating the purchase plan", e)
+
     except Exception as e:
-        logger.error(f"Critical error in Demand Planner render: {str(e)}", exc_info=True)
-        st.error(f"Critical error: {e}")
+        show_error(logger, "Critical error in Demand Planner", e)

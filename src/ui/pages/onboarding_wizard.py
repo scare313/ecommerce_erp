@@ -20,6 +20,7 @@ import pandas as pd
 from src.core.services.onboarding_service import OnboardingService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
+from src.ui.components.errors import show_error
 from sqlalchemy import text
 
 logger = get_logger(__name__)
@@ -149,8 +150,7 @@ def render():
                 st.rerun()
 
     except Exception as e:
-        logger.error(f"Critical error in Onboarding Wizard render: {str(e)}", exc_info=True)
-        st.error(f"❌ Critical error: {e}")
+        show_error(logger, "Critical error in Onboarding Wizard", e)
 
 
 # =============================================================================
@@ -290,8 +290,7 @@ def _render_step_1_upload():
                 st.rerun()
 
             except Exception as e:
-                logger.error(f"Error during onboarding parse: {str(e)}", exc_info=True)
-                st.error(f"❌ Parse failed: {str(e)}")
+                show_error(logger, "Parsing failed", e)
 
 
 # =============================================================================
@@ -967,8 +966,7 @@ def _execute_commit():
             st.rerun()
 
         except Exception as e:
-            logger.error(f"Commit failed: {str(e)}", exc_info=True)
-            st.error(f"❌ Commit failed: {str(e)}")
+            show_error(logger, "Commit failed", e)
             st.info(
                 "Your data was NOT saved due to the error above. "
                 "You can retry by clicking the Commit button again, or "
