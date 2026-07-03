@@ -120,6 +120,13 @@ def in_memory_engine():
             gst_on_fees DECIMAL(5,2)
         )
         """,
+        # ---- rules_meta ----
+        """
+        CREATE TABLE rules_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """,
     ]
 
     with engine.connect() as conn:

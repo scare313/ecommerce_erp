@@ -71,6 +71,40 @@ class TestGetMarketplaces:
 
 
 @pytest.mark.unit
+class TestRulesMeta:
+    """Tests for get_rules_last_verified / set_rules_last_verified (E9)."""
+
+    def test_returns_none_when_table_empty(self, in_memory_engine, monkeypatch):
+        """rules_meta table exists but has no rows -> None, not an error."""
+        monkeypatch.setattr("src.core.data_access.get_engine", lambda: in_memory_engine)
+        result = data_access.get_rules_last_verified()
+        assert result is None
+
+    def test_set_and_get_round_trip(self, in_memory_engine, monkeypatch):
+        """set_rules_last_verified() writes an ISO datetime; get reads it back."""
+        monkeypatch.setattr("src.core.data_access.get_engine", lambda: in_memory_engine)
+        data_access.set_rules_last_verified()
+        result = data_access.get_rules_last_verified()
+        assert result is not None
+        from datetime import datetime
+        parsed = datetime.fromisoformat(result)
+        assert parsed.year >= 2026
+
+    def test_set_is_idempotent(self, in_memory_engine, monkeypatch):
+        """Calling set_rules_last_verified() twice replaces, not appends."""
+        monkeypatch.setattr("src.core.data_access.get_engine", lambda: in_memory_engine)
+        data_access.set_rules_last_verified()
+        data_access.set_rules_last_verified()
+        # Only one row should exist
+        from sqlalchemy import text
+        with in_memory_engine.connect() as conn:
+            count = conn.execute(
+                text("SELECT COUNT(*) FROM rules_meta WHERE key = 'rules_last_verified'")
+            ).scalar()
+        assert count == 1
+
+
+@pytest.mark.unit
 class TestGetInventoryBalances:
     """Sanity check the moved SQL still returns the right shape."""
 

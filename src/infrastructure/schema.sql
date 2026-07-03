@@ -120,3 +120,38 @@ CREATE TABLE IF NOT EXISTS stock_ledger (
     running_balance INT,                -- godown_stock_packs balance immediately AFTER this row (NULL for pre-migration history)
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Marketplace fee configuration (E9: single SQL source of truth)
+CREATE TABLE IF NOT EXISTS config (
+    marketplace VARCHAR(50) PRIMARY KEY,
+    default_zone VARCHAR(50) DEFAULT 'national',
+    volumetric_divisor INT DEFAULT 5000,
+    gst_on_fees DECIMAL(5,4) DEFAULT 0.18
+);
+
+-- Per-marketplace referral and closing fee rules by category + price band
+CREATE TABLE IF NOT EXISTS pricing_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    marketplace VARCHAR(50) NOT NULL,
+    category_ref VARCHAR(100) NOT NULL,
+    min_price DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+    max_price DECIMAL(10,2) NOT NULL DEFAULT 99999.0,
+    referral_fee_pct DECIMAL(5,4) NOT NULL DEFAULT 0.0,
+    closing_fee_inr DECIMAL(10,2) NOT NULL DEFAULT 0.0
+);
+
+-- Weight-based shipping fee rules by marketplace and zone
+CREATE TABLE IF NOT EXISTS shipping_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    marketplace VARCHAR(50) NOT NULL,
+    weight_slab_max_kg DECIMAL(5,3) NOT NULL,
+    local_fee DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+    regional_fee DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+    national_fee DECIMAL(10,2) NOT NULL DEFAULT 0.0
+);
+
+-- Key-value store for rule-set metadata (e.g. last_verified timestamp)
+CREATE TABLE IF NOT EXISTS rules_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);

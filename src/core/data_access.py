@@ -14,33 +14,48 @@ logger = get_logger(__name__)
 
 
 def get_marketplaces() -> list[str]:
-    """Return active marketplaces from Excel config or database fallback."""
+    """Return active marketplaces from the SQL config table (authoritative source, E9)."""
     try:
         engine = get_engine()
-        use_sql_config = False
-        try:
-            from sqlalchemy import text
-            with engine.connect() as conn:
-                config_count = conn.execute(text("SELECT COUNT(*) FROM config")).scalar() or 0
-                if config_count > 0:
-                    use_sql_config = True
-        except Exception:
-            pass
-
-        if use_sql_config:
-            df = pd.read_sql("SELECT marketplace FROM config ORDER BY marketplace", engine)
-        else:
-            from src.infrastructure.config_rules import load_excel_sheet
-            df = load_excel_sheet("Config")
-
+        df = pd.read_sql("SELECT marketplace FROM config ORDER BY marketplace", engine)
         if df.empty or 'marketplace' not in df.columns:
-            logger.warning("No marketplaces in config; falling back to defaults")
+            logger.warning("No marketplaces in config table; falling back to defaults")
             return ["Amazon", "Flipkart", "Meesho"]
-
-        return sorted(df['marketplace'].dropna().unique().tolist())
+        return df['marketplace'].dropna().unique().tolist()
     except Exception as e:
         logger.error(f"get_marketplaces failed: {e}", exc_info=True)
         return ["Amazon", "Flipkart", "Meesho"]
+
+
+def get_rules_last_verified() -> str | None:
+    """Return the ISO datetime string when fee rules were last verified, or None."""
+    try:
+        from sqlalchemy import text
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT value FROM rules_meta WHERE key = 'rules_last_verified'")
+            ).fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        logger.error(f"get_rules_last_verified failed: {e}", exc_info=True)
+        return None
+
+
+def set_rules_last_verified() -> None:
+    """Record the current UTC time as when rules were last verified."""
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+    ts = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    try:
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT OR REPLACE INTO rules_meta (key, value) VALUES ('rules_last_verified', :ts)"),
+                {"ts": ts},
+            )
+    except Exception as e:
+        logger.error(f"set_rules_last_verified failed: {e}", exc_info=True)
 
 
 def get_categories() -> list[str]:

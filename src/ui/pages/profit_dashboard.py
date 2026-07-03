@@ -32,6 +32,25 @@ def render():
         mkt = st.selectbox("Select Marketplace", marketplaces, index=0, key="profit_mkt")
         logger.debug(f"User selected marketplace: {mkt}")
 
+        # --- Fee rules freshness indicator ---
+        try:
+            from src.core.data_access import get_rules_last_verified
+            from datetime import datetime, timezone
+            lv_str = get_rules_last_verified()
+            if lv_str:
+                lv = datetime.fromisoformat(lv_str)
+                days_ago = (datetime.now(timezone.utc).replace(tzinfo=None) - lv).days
+                if days_ago > 30:
+                    st.warning(
+                        f"⚠️ Fee rules were last verified **{days_ago} days ago** "
+                        f"({lv.strftime('%d %b %Y')}). "
+                        "Margins may be stale — check **Config & Rules** in Data Manager."
+                    )
+                else:
+                    st.caption(f"Fee rules verified {lv.strftime('%d %b %Y')}")
+        except Exception:
+            pass
+
         # --- Fetch profitability data ---
         try:
             df = get_profitability_cached(marketplace=mkt)

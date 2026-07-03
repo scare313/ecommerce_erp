@@ -82,6 +82,45 @@ def _apply_table_migrations(engine):
             )""",
             "supplier_master",
         ),
+        (
+            """CREATE TABLE IF NOT EXISTS config (
+                marketplace      VARCHAR(50) PRIMARY KEY,
+                default_zone     VARCHAR(50) DEFAULT 'national',
+                volumetric_divisor INT       DEFAULT 5000,
+                gst_on_fees      DECIMAL(5,4) DEFAULT 0.18
+            )""",
+            "config",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS pricing_rules (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                marketplace      VARCHAR(50) NOT NULL,
+                category_ref     VARCHAR(100) NOT NULL,
+                min_price        DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+                max_price        DECIMAL(10,2) NOT NULL DEFAULT 99999.0,
+                referral_fee_pct DECIMAL(5,4) NOT NULL DEFAULT 0.0,
+                closing_fee_inr  DECIMAL(10,2) NOT NULL DEFAULT 0.0
+            )""",
+            "pricing_rules",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS shipping_rules (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                marketplace        VARCHAR(50) NOT NULL,
+                weight_slab_max_kg DECIMAL(5,3) NOT NULL,
+                local_fee          DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+                regional_fee       DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+                national_fee       DECIMAL(10,2) NOT NULL DEFAULT 0.0
+            )""",
+            "shipping_rules",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS rules_meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )""",
+            "rules_meta",
+        ),
     ]
     with engine.connect() as conn:
         for sql, table_name in ddl_statements:
@@ -326,6 +365,103 @@ def _deprecate_product_master_stock_columns(engine):
                 logger.warning(f"Could not zero product_master.{colname}: {zero_err}")
 
 
+def _seed_rules_tables_from_excel(engine):
+    """Seed config/pricing_rules/shipping_rules SQL tables from Excel (one-time, E9).
+
+    After this migration runs, SQL is the single authoritative source for
+    marketplace fee config. The Excel file becomes import-only. Guarded by a
+    schema_migrations row so it runs exactly once on first deploy of Sprint 5.
+    """
+    migration_name = 'seed_rules_tables_from_excel_v1'
+
+    with engine.connect() as conn:
+        if conn.execute(
+            text("SELECT COUNT(*) FROM schema_migrations WHERE migration_name = :n"),
+            {"n": migration_name},
+        ).scalar() > 0:
+            logger.debug("Rules SQL seed already applied — skipping")
+            return
+
+    logger.info("Running one-time migration: seed SQL rules tables from Excel...")
+    try:
+        from src.infrastructure.config_rules import load_excel_sheet
+        from datetime import datetime, timezone
+
+        config_df = load_excel_sheet("Config")
+        pricing_df = load_excel_sheet("Pricing_Rules")
+        shipping_df = load_excel_sheet("Shipping_Rules")
+
+        with engine.begin() as conn:
+            # Seed config
+            if not config_df.empty and 'marketplace' in config_df.columns:
+                rows = config_df[['marketplace', 'default_zone', 'volumetric_divisor', 'gst_on_fees']].dropna(subset=['marketplace'])
+                for _, row in rows.iterrows():
+                    conn.execute(text(
+                        "INSERT OR REPLACE INTO config "
+                        "(marketplace, default_zone, volumetric_divisor, gst_on_fees) "
+                        "VALUES (:m, :dz, :vd, :gf)"
+                    ), {
+                        "m": row['marketplace'],
+                        "dz": row.get('default_zone', 'national'),
+                        "vd": int(row.get('volumetric_divisor', 5000)),
+                        "gf": float(row.get('gst_on_fees', 0.18)),
+                    })
+                logger.info(f"Seeded {len(rows)} marketplace config rows into SQL")
+
+            # Seed pricing_rules
+            if not pricing_df.empty:
+                pr_cols = ['marketplace', 'category_ref', 'min_price', 'max_price',
+                           'referral_fee_pct', 'closing_fee_inr']
+                rows = pricing_df[[c for c in pr_cols if c in pricing_df.columns]].dropna(subset=['marketplace'])
+                for _, row in rows.iterrows():
+                    conn.execute(text(
+                        "INSERT INTO pricing_rules "
+                        "(marketplace, category_ref, min_price, max_price, referral_fee_pct, closing_fee_inr) "
+                        "VALUES (:m, :cr, :min, :max, :rf, :cf)"
+                    ), {
+                        "m": row['marketplace'],
+                        "cr": row.get('category_ref', 'Other'),
+                        "min": float(row.get('min_price', 0.0)),
+                        "max": float(row.get('max_price', 99999.0)),
+                        "rf": float(row.get('referral_fee_pct', 0.0)),
+                        "cf": float(row.get('closing_fee_inr', 0.0)),
+                    })
+                logger.info(f"Seeded {len(rows)} pricing rule rows into SQL")
+
+            # Seed shipping_rules
+            if not shipping_df.empty:
+                sr_cols = ['marketplace', 'weight_slab_max_kg', 'local_fee', 'regional_fee', 'national_fee']
+                rows = shipping_df[[c for c in sr_cols if c in shipping_df.columns]].dropna(subset=['marketplace'])
+                for _, row in rows.iterrows():
+                    conn.execute(text(
+                        "INSERT INTO shipping_rules "
+                        "(marketplace, weight_slab_max_kg, local_fee, regional_fee, national_fee) "
+                        "VALUES (:m, :ws, :lf, :rf, :nf)"
+                    ), {
+                        "m": row['marketplace'],
+                        "ws": float(row.get('weight_slab_max_kg', 0.5)),
+                        "lf": float(row.get('local_fee', 0.0)),
+                        "rf": float(row.get('regional_fee', 0.0)),
+                        "nf": float(row.get('national_fee', 0.0)),
+                    })
+                logger.info(f"Seeded {len(rows)} shipping rule rows into SQL")
+
+            # Record the initial verification timestamp
+            conn.execute(text(
+                "INSERT OR REPLACE INTO rules_meta (key, value) VALUES ('rules_last_verified', :ts)"
+            ), {"ts": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()})
+
+            conn.execute(
+                text("INSERT OR IGNORE INTO schema_migrations (migration_name) VALUES (:n)"),
+                {"n": migration_name},
+            )
+
+        logger.info("✅ Rules SQL tables seeded. SQL is now the authoritative config source.")
+    except Exception as e:
+        logger.error(f"Rules seed migration failed: {e}", exc_info=True)
+        raise
+
+
 def _apply_column_migrations(engine):
     """Apply additive ALTER TABLE column migrations idempotently.
 
@@ -408,7 +544,10 @@ def _check_and_migrate_existing_db():
         # 4. One-time deprecation of orphaned product_master stock columns
         _deprecate_product_master_stock_columns(engine)
 
-        # 5. Enable FK enforcement if all supplier_code references are clean
+        # 5. One-time seed of SQL rules tables from Excel (E9: single config source)
+        _seed_rules_tables_from_excel(engine)
+
+        # 6. Enable FK enforcement if all supplier_code references are clean
         _enable_foreign_keys_if_clean(engine)
 
         with engine.connect() as conn:
@@ -512,11 +651,13 @@ def _create_new_database():
             conn.commit()
             logger.info(f"✅ Database schema created successfully. Executed {executed_successfully} statements.")
 
-        # 1. Ensure supplier_master and schema_migrations tables exist
-        #    (schema.sql already creates them, but this is idempotent insurance)
+        # 1. Ensure all tables exist (schema.sql covers them, but this is idempotent insurance)
         _apply_table_migrations(engine)
 
-        # 2. Enable FK enforcement — fresh DB has no products, so orphan count is 0
+        # 2. Seed SQL rules tables from Excel (E9: single config source)
+        _seed_rules_tables_from_excel(engine)
+
+        # 3. Enable FK enforcement — fresh DB has no products, so orphan count is 0
         _enable_foreign_keys_if_clean(engine)
 
         # Load initial data via migration (OPTIONAL — wizard can bootstrap instead)

@@ -88,27 +88,11 @@ class FinanceService:
                     df = pd.read_sql(text(query), conn, params=params)
                     logger.debug(f"Retrieved {len(df)} listings for analysis")
 
-                    # Load Config and Rules
-                    # First, check if SQLite has the rules tables populated (common in tests/conftest.py)
-                    use_sql_rules = False
-                    try:
-                        pricing_count = conn.execute(text("SELECT COUNT(*) FROM pricing_rules")).scalar() or 0
-                        if pricing_count > 0:
-                            use_sql_rules = True
-                    except Exception:
-                        pass
-
-                    if use_sql_rules:
-                        logger.debug("Loading rules from SQLite database (tests/fallback)...")
-                        config_df = pd.read_sql("SELECT * FROM config", conn)
-                        pricing_rules = pd.read_sql("SELECT * FROM pricing_rules", conn)
-                        shipping_rules = pd.read_sql("SELECT * FROM shipping_rules", conn)
-                    else:
-                        logger.debug("Loading rules from Excel config...")
-                        from src.infrastructure.config_rules import load_excel_sheet
-                        config_df = load_excel_sheet("Config")
-                        pricing_rules = load_excel_sheet("Pricing_Rules")
-                        shipping_rules = load_excel_sheet("Shipping_Rules")
+                    # Load fee rules from SQL (authoritative source after E9 migration)
+                    logger.debug("Loading fee rules from SQL config tables...")
+                    config_df = pd.read_sql("SELECT * FROM config", conn)
+                    pricing_rules = pd.read_sql("SELECT * FROM pricing_rules", conn)
+                    shipping_rules = pd.read_sql("SELECT * FROM shipping_rules", conn)
 
                 if df.empty:
                     logger.warning("No data found for profitability calculation")
