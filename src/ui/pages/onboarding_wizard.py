@@ -831,7 +831,7 @@ def _render_step_6_diff():
     with st.expander("ℹ️ Field defaults & preservation rules", expanded=False):
         st.markdown("""
         **For NEW products, these fields will default to:**
-        - `category` → NULL (fill in Data Manager later)
+        - `category` → NULL (fill in Catalog later)
         - `mfg_cost`, `total_unit_cogs`, `packaging_cost` → 0
         - `gst_rate` → parsed from marketplace tax codes if available, else NULL
         - `brand` → from marketplace data if available, else NULL
@@ -895,7 +895,7 @@ def _render_step_7_success():
     Your catalog is now bootstrapped, but several fields are intentionally blank
     or zero. To unlock the full ERP capabilities, complete these tasks:
 
-    1. **💰 Fill in COGS** — Open **Data Manager → Products** and enter
+    1. **💰 Fill in COGS** — Open **Catalog → Products** and enter
        `mfg_cost`, `packaging_cost`, `labeling_labor`, and `inbound_transport`
        for each product. Without these, the Profit Dashboard will show -100% margins.
 
@@ -907,7 +907,7 @@ def _render_step_7_success():
        Review products with NULL `gst_rate` and fill them in (5%, 12%, 18%, etc.).
 
     4. **📐 Add Missing Dimensions** — Meesho-only SKUs won't have package
-       dimensions. Add them in **Data Manager → Packs** so shipping fees can
+       dimensions. Add them in **Catalog → Packs** so shipping fees can
        be calculated correctly.
 
     5. **📥 Update Inventory** — Use **Inventory Manager → Bulk Update** to
@@ -922,9 +922,9 @@ def _render_step_7_success():
     # Action buttons
     col_a, col_b, col_c = st.columns(3)
     with col_a:
-        if st.button("📂 Go to Data Manager", key="onb_goto_dm"):
-            logger.info("User navigating from wizard to Data Manager")
-            st.info("👈 Use the sidebar to navigate to Data Manager")
+        if st.button("📂 Go to Catalog", key="onb_goto_dm"):
+            logger.info("User navigating from wizard to Catalog")
+            st.info("👈 Use the sidebar to navigate to Catalog")
     with col_b:
         if st.button("💰 Go to Profit Dashboard", key="onb_goto_pd"):
             logger.info("User navigating from wizard to Profit Dashboard")

@@ -1029,6 +1029,22 @@ Upload an Excel file with the following columns:
     st.markdown(f"### {emojis[active]} {labels[active]}")
     funcs[active]()
 
+    # Mobile-only bottom nav bar — hidden on desktop via CSS
+    # (.st-key-inv_bottom_nav display:none above 640px).
+    # Tapping a section button here is one action vs. Back→Launcher→section (three).
+    with st.container(key="inv_bottom_nav"):
+        nav_cols = st.columns(len(sections))
+        for col, (key, emoji, lbl, _fn) in zip(nav_cols, sections):
+            with col:
+                if st.button(
+                    f"{emoji}\n{lbl}",
+                    key=f"bnav_{key}",
+                    use_container_width=True,
+                    type="primary" if key == active else "secondary",
+                ):
+                    st.session_state["inv_section"] = key
+                    st.rerun()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Page Entry Point

@@ -170,7 +170,7 @@ def render():
                     with tab2:
                         if not orphans_df.empty:
                             logger.warning(f"Found {len(orphans_df)} unmapped SKUs")
-                            st.warning("These SKUs were found in Sales Reports but NOT in your Database. Please add them in Data Manager.")
+                            st.warning("These SKUs were found in Sales Reports but NOT in your Database. Please add them in Catalog.")
                             st.dataframe(orphans_df)
                         else:
                             logger.info("All sales mapped successfully")

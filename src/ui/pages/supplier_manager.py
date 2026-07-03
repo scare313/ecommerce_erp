@@ -294,7 +294,7 @@ def render():
                                                 st.info(
                                                     "ℹ️ Supplier Product Codes were not updated — "
                                                     "they still reflect the previous supplier's codes. "
-                                                    "Review them in **Data Manager** if needed."
+                                                    "Review them in **Catalog** if needed."
                                                 )
                                                 st.rerun()
                                             except DataValidationException as e:

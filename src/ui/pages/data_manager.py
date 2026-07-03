@@ -27,7 +27,7 @@ def render():
     """Render the Data Manager UI page."""
     try:
         logger.info("Rendering Data Manager page...")
-        st.title("🗂️ Master Data Manager")
+        st.title("🗂️ Catalog")
         
         try:
             service = CatalogService()

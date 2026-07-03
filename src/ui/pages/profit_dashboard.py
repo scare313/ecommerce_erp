@@ -27,7 +27,7 @@ def render():
         # --- Marketplace selector ---
         marketplaces = get_marketplaces()
         if not marketplaces:
-            st.error("No marketplaces configured. Add them in Data Manager → Config.")
+            st.error("No marketplaces configured. Add them in Catalog → Config.")
             return
         mkt = st.selectbox("Select Marketplace", marketplaces, index=0, key="profit_mkt")
         logger.debug(f"User selected marketplace: {mkt}")
@@ -44,7 +44,7 @@ def render():
                     st.warning(
                         f"⚠️ Fee rules were last verified **{days_ago} days ago** "
                         f"({lv.strftime('%d %b %Y')}). "
-                        "Margins may be stale — check **Config & Rules** in Data Manager."
+                        "Margins may be stale — check **Config & Rules** in Catalog."
                     )
                 else:
                     st.caption(f"Fee rules verified {lv.strftime('%d %b %Y')}")
@@ -66,7 +66,7 @@ def render():
         missing_prices = df[df['selling_price'].isna() | (df['selling_price'] <= 0)]
         if len(missing_prices) > 0:
             logger.warning(f"{len(missing_prices)} listings missing prices on {mkt}")
-            st.warning(f"⚠️ {len(missing_prices)} listings have no selling price set. Update them in Data Manager.")
+            st.warning(f"⚠️ {len(missing_prices)} listings have no selling price set. Update them in Catalog.")
             df = df[df['selling_price'] > 0]
 
         if df.empty:

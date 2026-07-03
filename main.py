@@ -37,11 +37,40 @@ try:
     st.set_page_config(page_title="Ecommerce ERP", layout="wide")
 
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio(
-        "Go to",
-        ["Home", "Onboarding Wizard", "Profit Dashboard", "Gap Analysis", "Demand Planner",
-        "Data Manager", "Supplier Master", "Inventory Manager"]
-    )
+
+    # Grouped button nav — persists active page across reruns via session state.
+    # Buttons are grouped by workflow persona; the active page gets type="primary"
+    # (green fill) for a clear visual indicator.
+    if "nav_page" not in st.session_state:
+        st.session_state.nav_page = "Home"
+    page = st.session_state.nav_page
+
+    def _nav(label: str, name: str) -> None:
+        """Render one sidebar nav button; clicking sets the active page."""
+        if st.sidebar.button(
+            label,
+            use_container_width=True,
+            type="primary" if page == name else "secondary",
+            key=f"nav_btn_{name}",
+        ):
+            st.session_state.nav_page = name
+
+    _nav("🏠 Home", "Home")
+
+    st.sidebar.caption("OPERATE")
+    _nav("📦 Inventory Manager", "Inventory Manager")
+    _nav("🏭 Supplier Master",   "Supplier Master")
+
+    st.sidebar.caption("CATALOG & SELL")
+    _nav("🗂️ Catalog",      "Catalog")
+    _nav("🔭 Gap Analysis", "Gap Analysis")
+
+    st.sidebar.caption("ANALYZE")
+    _nav("💰 Profit Dashboard", "Profit Dashboard")
+    _nav("📈 Demand Planner",   "Demand Planner")
+
+    st.sidebar.caption("SETUP")
+    _nav("🔧 Onboarding Wizard", "Onboarding Wizard")
 
     # Empty-DB detection banner — guides new users to the wizard
     try:
@@ -88,8 +117,8 @@ try:
             logger.debug("Loading Demand Planner...")
             from src.ui.pages import demand_planner
             demand_planner.render()
-        elif page == "Data Manager":
-            logger.debug("Loading Data Manager...")
+        elif page == "Catalog":
+            logger.debug("Loading Catalog...")
             from src.ui.pages import data_manager
             data_manager.render()
         elif page == "Supplier Master":
