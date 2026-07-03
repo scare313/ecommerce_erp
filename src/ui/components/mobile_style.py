@@ -17,9 +17,12 @@ _MOBILE_CSS = """
 <style>
 
 /* ── Launcher cards (all screen sizes) ────────────────────────────────────────
-   Scoped to the nav buttons via Streamlit's per-key container class
-   (st-key-nav_<section>). Turns the plain pill buttons into square icon tiles. */
-[class*="st-key-nav_"] button {
+   Scoped to .st-key-inv_launcher so the square-tile style applies ONLY to the
+   inventory section launcher grid — not to sidebar nav buttons, which share
+   the st-key-nav_* class prefix (e.g. st-key-nav_btn_Home). Without this
+   scope, injecting this CSS on the Inventory page would make every sidebar
+   button square. */
+.st-key-inv_launcher [class*="st-key-nav_"] button {
     aspect-ratio: 1 / 1;
     height: auto !important;
     min-height: 0 !important;
@@ -48,7 +51,7 @@ _MOBILE_CSS = """
     flex: 1 1 0 !important;
     width: 50% !important;
 }
-[class*="st-key-nav_"] button:hover {
+.st-key-inv_launcher [class*="st-key-nav_"] button:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0,0,0,0.12);
 }
