@@ -139,6 +139,16 @@ class BulkService:
                         logs.append(msg)
                         return
                     
+                    # Normalize SKU columns to canonical uppercase before insert (E11)
+                    _SKU_COLS = {
+                        "product_master": ["sku"],
+                        "pack_master": ["pack_sku", "master_sku"],
+                        "channel_listings": ["channel_sku", "internal_sku"],
+                    }
+                    for col in _SKU_COLS.get(table_name, []):
+                        if col in df.columns:
+                            df[col] = df[col].astype(str).str.strip().str.upper()
+
                     if table_name in ["config", "pricing_rules", "shipping_rules"]:
                         try:
                             from src.infrastructure.config_rules import save_excel_sheet

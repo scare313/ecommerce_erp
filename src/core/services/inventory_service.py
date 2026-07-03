@@ -53,7 +53,7 @@ class InventoryService:
             pm.master_sku as base_sku,
             p.name as product_name,
             p.supplier,
-            UPPER(TRIM(p.supplier_code)) as supplier_code,
+            p.supplier_code,
             p.supplier_product_code,
             p.category
         FROM channel_listings cl
@@ -257,6 +257,7 @@ class InventoryService:
         via engine.begin(). If the ledger insert fails, the inventory update is
         rolled back so stock totals and the audit trail never diverge.
         """
+        sku = sku.strip().upper()
         col = "godown_stock_packs" if location == "GODOWN" else "shop_stock_pieces"
         # Encode location and unit_type into reason — these columns no longer exist in
         # stock_ledger after the schema refactor that introduced packs/multiplier columns.
@@ -304,6 +305,7 @@ class InventoryService:
         Two inventory updates and two ledger rows are wrapped in a single transaction
         via engine.begin(). All operations succeed together or none are applied.
         """
+        sku = sku.strip().upper()
         pieces = packs * multiplier
 
         with self.engine.begin() as conn:
@@ -387,6 +389,7 @@ class InventoryService:
         Reorder levels are configuration, not stock movements — no ledger entry
         is written. The inventory_master row is created if it does not exist.
         """
+        sku = sku.strip().upper()
         rp = int(reorder_point)
         rq = int(reorder_qty)
         if rp < 0 or rq < 0:
@@ -497,7 +500,7 @@ class InventoryService:
                 text("""
                     SELECT running_balance
                     FROM stock_ledger
-                    WHERE UPPER(sku) = :sku
+                    WHERE sku = :sku
                       AND date(timestamp) < :start_date
                       AND running_balance IS NOT NULL
                     ORDER BY id DESC
@@ -512,7 +515,7 @@ class InventoryService:
                 SELECT id, transaction_type, packs, multiplier, total_pieces_affected,
                        reason_code, reason, updated_by, running_balance, timestamp
                 FROM stock_ledger
-                WHERE UPPER(sku) = :sku
+                WHERE sku = :sku
                   AND date(timestamp) BETWEEN :start_date AND :end_date
                 ORDER BY id ASC
             """),
@@ -562,6 +565,7 @@ class InventoryService:
     def manage_godown_stock(self, sku, packs, multiplier, action_type,
                             reason="", reason_code="ADJUSTMENT", updated_by="system"):
         """Handles adding or removing packs with a specific multiplier."""
+        sku = sku.strip().upper()
         # Calculate total pieces for the ledger record
         total_pieces = packs * multiplier
         
@@ -633,6 +637,7 @@ class InventoryService:
         Note: shop stock is tracked in pieces, not packs. The ledger records
         multiplier=1 and total_pieces_affected=pieces to reflect this.
         """
+        sku = sku.strip().upper()
         piece_change = pieces if action_type == "ADD" else -pieces
 
         with self.engine.begin() as conn:

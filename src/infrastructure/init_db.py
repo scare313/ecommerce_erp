@@ -462,6 +462,105 @@ def _seed_rules_tables_from_excel(engine):
         raise
 
 
+def _normalize_sku_case(engine):
+    """Uppercase all SKU values in every table that stores them (one-time, E11).
+
+    SKU columns are PRIMARY KEY in most tables, so updating them requires that
+    no two current rows produce the same UPPER() value (a "case collision").
+    If collisions are detected the migration is skipped and a WARNING is logged
+    for each colliding set — the operator resolves them and the migration runs
+    on the next startup.
+
+    FK enforcement is not yet enabled when this function is called (it is
+    registered by _enable_foreign_keys_if_clean which runs afterward), so
+    updating PK columns and their matching FK columns sequentially is safe.
+
+    Tables and columns normalised:
+        product_master.sku
+        pack_master.pack_sku, pack_master.master_sku
+        channel_listings.channel_sku, channel_listings.internal_sku
+        inventory_master.sku
+        stock_ledger.sku
+    """
+    migration_name = 'normalize_sku_case_v1'
+
+    with engine.connect() as conn:
+        if conn.execute(
+            text("SELECT COUNT(*) FROM schema_migrations WHERE migration_name = :n"),
+            {"n": migration_name},
+        ).scalar() > 0:
+            logger.debug("SKU case normalization already applied — skipping")
+            return
+
+    logger.info("Running one-time migration: normalize SKU case to uppercase...")
+
+    # --- Pre-check: case collisions in product_master ---
+    with engine.connect() as conn:
+        collisions = conn.execute(text("""
+            SELECT UPPER(TRIM(sku)) AS upper_sku, GROUP_CONCAT(sku) AS originals
+            FROM product_master
+            GROUP BY UPPER(TRIM(sku))
+            HAVING COUNT(*) > 1
+        """)).fetchall()
+
+    if collisions:
+        for row in collisions:
+            logger.warning(
+                f"SKU case-collision in product_master: UPPER → '{row[0]}' "
+                f"matches multiple rows: {row[1]}. "
+                "Resolve these before the normalization migration can run."
+            )
+        logger.warning(
+            f"SKU normalization SKIPPED: {len(collisions)} collision(s) found in "
+            "product_master. Fix collisions in the Catalog and restart the app."
+        )
+        return  # Do NOT mark as applied — retry next startup after resolution
+
+    # --- Pre-check: case collisions in pack_master ---
+    with engine.connect() as conn:
+        pack_collisions = conn.execute(text("""
+            SELECT UPPER(TRIM(pack_sku)) AS upper_sku, GROUP_CONCAT(pack_sku)
+            FROM pack_master
+            GROUP BY UPPER(TRIM(pack_sku))
+            HAVING COUNT(*) > 1
+        """)).fetchall()
+
+    if pack_collisions:
+        for row in pack_collisions:
+            logger.warning(
+                f"SKU case-collision in pack_master: UPPER → '{row[0]}' "
+                f"matches multiple rows: {row[1]}. Resolve before normalization."
+            )
+        logger.warning("SKU normalization SKIPPED: collision(s) in pack_master.")
+        return
+
+    # --- All clear: run migration in a single transaction ---
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE product_master SET sku = UPPER(TRIM(sku))"))
+            conn.execute(text(
+                "UPDATE pack_master "
+                "SET pack_sku = UPPER(TRIM(pack_sku)), "
+                "    master_sku = UPPER(TRIM(master_sku))"
+            ))
+            conn.execute(text(
+                "UPDATE channel_listings "
+                "SET channel_sku = UPPER(TRIM(channel_sku)), "
+                "    internal_sku = UPPER(TRIM(internal_sku))"
+            ))
+            conn.execute(text("UPDATE inventory_master SET sku = UPPER(TRIM(sku))"))
+            conn.execute(text("UPDATE stock_ledger SET sku = UPPER(TRIM(sku))"))
+            conn.execute(
+                text("INSERT OR IGNORE INTO schema_migrations (migration_name) VALUES (:n)"),
+                {"n": migration_name},
+            )
+
+        logger.info("✅ SKU case normalization complete. All SKUs are now uppercase.")
+    except Exception as e:
+        logger.error(f"SKU normalization migration failed: {e}", exc_info=True)
+        raise
+
+
 def _apply_column_migrations(engine):
     """Apply additive ALTER TABLE column migrations idempotently.
 
@@ -547,7 +646,10 @@ def _check_and_migrate_existing_db():
         # 5. One-time seed of SQL rules tables from Excel (E9: single config source)
         _seed_rules_tables_from_excel(engine)
 
-        # 6. Enable FK enforcement if all supplier_code references are clean
+        # 6. One-time SKU case normalization (E11: canonical uppercase SKUs)
+        _normalize_sku_case(engine)
+
+        # 7. Enable FK enforcement if all supplier_code references are clean
         _enable_foreign_keys_if_clean(engine)
 
         with engine.connect() as conn:
@@ -657,7 +759,10 @@ def _create_new_database():
         # 2. Seed SQL rules tables from Excel (E9: single config source)
         _seed_rules_tables_from_excel(engine)
 
-        # 3. Enable FK enforcement — fresh DB has no products, so orphan count is 0
+        # 3. SKU case normalization (E11) — no-op on fresh DB; guard protects idempotency
+        _normalize_sku_case(engine)
+
+        # 4. Enable FK enforcement — fresh DB has no products, so orphan count is 0
         _enable_foreign_keys_if_clean(engine)
 
         # Load initial data via migration (OPTIONAL — wizard can bootstrap instead)

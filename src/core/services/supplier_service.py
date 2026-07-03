@@ -108,7 +108,7 @@ class SupplierService:
                 text("""
                     SELECT sku, name, category
                     FROM product_master
-                    WHERE UPPER(TRIM(supplier_code)) = :code
+                    WHERE supplier_code = :code
                     ORDER BY sku
                 """),
                 conn,
@@ -244,7 +244,7 @@ class SupplierService:
             count = conn.execute(
                 text("""
                     SELECT COUNT(*) FROM product_master
-                    WHERE UPPER(TRIM(supplier_code)) = :code
+                    WHERE supplier_code = :code
                 """),
                 {"code": supplier_code.strip().upper()},
             ).scalar()
@@ -310,7 +310,7 @@ class SupplierService:
                 text("""
                     UPDATE product_master
                     SET supplier_code = :to_code
-                    WHERE UPPER(TRIM(supplier_code)) = :from_code
+                    WHERE supplier_code = :from_code
                 """),
                 {"to_code": to_code, "from_code": from_code},
             )

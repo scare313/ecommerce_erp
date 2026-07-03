@@ -99,8 +99,12 @@ class CatalogService:
             DatabaseException: If database insert fails
         """
         try:
+            # Canonical SKU — uppercase, stripped of whitespace
+            if data.get('sku'):
+                data['sku'] = str(data['sku']).strip().upper()
+
             logger.info(f"Adding product: {data.get('sku', 'UNKNOWN')}")
-            
+
             # Calculate Total Unit COGS automatically
             mfg = data.get('mfg_cost', 0) or 0
             box = data.get('packaging_cost', 0) or 0
@@ -157,6 +161,12 @@ class CatalogService:
             DatabaseException: If database insert fails
         """
         try:
+            # Canonical SKUs — uppercase, stripped
+            if data.get('pack_sku'):
+                data['pack_sku'] = str(data['pack_sku']).strip().upper()
+            if data.get('master_sku'):
+                data['master_sku'] = str(data['master_sku']).strip().upper()
+
             logger.info(f"Adding pack: {data.get('pack_sku', 'UNKNOWN')}")
             self._insert('pack_master', data)
             logger.info(f"✅ Pack created: {data.get('pack_sku')}")
@@ -178,9 +188,15 @@ class CatalogService:
             DatabaseException: If database insert fails
         """
         try:
+            # Canonical SKUs — uppercase, stripped
+            if data.get('channel_sku'):
+                data['channel_sku'] = str(data['channel_sku']).strip().upper()
+            if data.get('internal_sku'):
+                data['internal_sku'] = str(data['internal_sku']).strip().upper()
+
             channel_sku = data.get('channel_sku', 'UNKNOWN')
             logger.info(f"Adding listing: {channel_sku}")
-            
+
             # Validate required fields
             if not data.get('channel_sku') or not data.get('marketplace'):
                 error_msg = "channel_sku and marketplace are required"
