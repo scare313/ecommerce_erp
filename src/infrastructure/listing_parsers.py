@@ -75,8 +75,11 @@ AMAZON_TAX_MAP = {
 # Unit conversion factors
 LENGTH_TO_CM = {
     "centimeters": 1.0, "centimeter": 1.0, "cm": 1.0, "cms": 1.0,
+    "centimetres": 1.0, "centimetre": 1.0,  # Amazon.in uses British spelling
     "millimeters": 0.1, "millimeter": 0.1, "mm": 0.1,
+    "millimetres": 0.1, "millimetre": 0.1,
     "meters": 100.0, "meter": 100.0, "m": 100.0,
+    "metres": 100.0, "metre": 100.0,
     "inches": 2.54, "inch": 2.54, "in": 2.54,
     "feet": 30.48, "foot": 30.48, "ft": 30.48,
 }
@@ -582,6 +585,14 @@ def parse_amazon_listings(file_buffer):
         ]
         for marker in desc_markers:
             df = df[~df[sku_col].astype(str).str.fullmatch(marker, case=False, na=False)]
+
+        # Newer Amazon templates also carry a machine-readable row of attribute
+        # keys under the header, e.g. SKU "contribution_sku#1.value" and title
+        # "item_name[marketplace_id=...]#1.value". It is not a product.
+        attribute_key_row = df[sku_col].astype(str).str.contains(
+            r"#\d+\.value$", case=False, regex=True, na=False
+        )
+        df = df[~attribute_key_row]
 
         if df.empty:
             return None, "Amazon Template sheet has no data rows after filtering descriptions"

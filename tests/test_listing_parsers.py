@@ -790,6 +790,33 @@ class TestParseAmazonListings:
         assert df is not None
         assert len(df) == 1
 
+    def test_attribute_key_row_is_not_a_product(self):
+        """Real 2026 reports carry a row of attribute keys under the header."""
+        base = {
+            "Status": "Active", "Title": "Cap", "Product Type": "HAT",
+            "Listing Action": "", "Brand Name": "B", "Product Id Type": "ASIN",
+            "Item Type Name": "cap", "Your Price INR (Sell on Amazon, IN)": 299,
+            "Item Package Length": 20, "Package Length Unit": "centimetres",
+            "Item Package Width": 20, "Package Width Unit": "centimetres",
+            "Item Package Height": 3, "Package Height Unit": "centimetres",
+            "Package Weight": 0.099, "Package Weight Unit": "kilograms",
+            "Country of Origin": "IN",
+        }
+        rows = [
+            {**base, "SKU": "contribution_sku#1.value",
+             "Item Name": "item_name[marketplace_id=A21TJRUUN4KGV][language_tag=en_IN]#1.value",
+             "Product Id": "amzn1.volt.ca.product_id_value",
+             "Your Price INR (Sell on Amazon, IN)": None},
+            {**base, "SKU": "CAP-BASEBALL-PLAIN-BLACK", "Item Name": "Black cap",
+             "Product Id": "B0TEST0001"},
+        ]
+        df, err = parse_amazon_listings(_make_amazon_xlsx(rows))
+
+        assert err is None
+        assert list(df["internal_sku"]) == ["CAP-BASEBALL-PLAIN-BLACK"]
+        # British spelling is recognised as centimetres
+        assert df.iloc[0]["length_cm"] == 20.0
+
     def test_unified_schema(self):
         rows = [{
             "Status": "Active", "Title": "X", "SKU": "TEST-SKU",

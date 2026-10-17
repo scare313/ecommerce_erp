@@ -229,9 +229,11 @@ def _render_step_1_upload():
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("**🟠 Amazon**")
-        st.caption("Category Listings Report (.xlsx)")
+        st.caption("Category Listings Report (.xlsm / .xlsx)")
+        # Amazon downloads this report as .xlsm (Excel with macros); the
+        # macros are never run — only the Template sheet's cells are read.
         f_amazon = st.file_uploader(
-            "Amazon file", type=['xlsx', 'xls'], key="onb_amazon",
+            "Amazon file", type=['xlsm', 'xlsx', 'xls'], key="onb_amazon",
             label_visibility="collapsed"
         )
         if f_amazon:
