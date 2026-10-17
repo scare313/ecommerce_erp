@@ -238,6 +238,24 @@ class TestSaveTableEdits:
             skus = {r[0] for r in conn.execute(text("SELECT sku FROM product_master"))}
         assert "CAP-NAVY" in skus
 
+    def test_product_added_in_grid_gets_single_unit_pack(self, service, schema_engine):
+        df = self._grid(schema_engine, "product_master")
+        df.loc[len(df)] = {"sku": "cap-olive", "name": "Olive cap"}
+
+        result = service.save_table_edits("product_master", df)
+
+        assert result == {"saved": 3, "packs_created": ["CAP-OLIVE"]}
+        with schema_engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT master_sku, quantity FROM pack_master WHERE pack_sku = 'CAP-OLIVE'"
+            )).fetchone()
+        assert tuple(row) == ("CAP-OLIVE", 1)
+
+    def test_existing_products_get_no_extra_packs(self, service, schema_engine):
+        df = self._grid(schema_engine, "product_master")
+        df.loc[df["sku"] == "CAP-WHITE", "name"] = "Renamed"
+        assert service.save_table_edits("product_master", df)["packs_created"] == []
+
     def test_blank_key_is_refused(self, service, schema_engine):
         df = self._grid(schema_engine, "product_master")
         df.loc[len(df)] = {"sku": None, "name": "No SKU"}

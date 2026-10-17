@@ -24,6 +24,31 @@ from src.ui.components.catalog_columns import FULFILMENT_OPTIONS
 
 logger = get_logger(__name__)
 
+_FLASH = "catalog_flash"
+
+
+def _save_grid(service, table, edited_df, editor_key, noun):
+    """Save a Catalog grid, then reload it fresh.
+
+    st.data_editor keeps the user's edits (added/changed/deleted rows) in
+    session state under its key and re-applies them to whatever data it is
+    given next run. After a save the data already contains those edits, so
+    the buffer must be dropped — otherwise new rows appear twice and the
+    next save fails as a duplicate.
+    """
+    result = service.save_table_edits(table, edited_df)
+    clear_all_caches()
+    msg = f"✅ Saved {result['saved']} {noun}."
+    if result["packs_created"]:
+        msg += (
+            " Created a single-unit pack for: "
+            + ", ".join(result["packs_created"])
+            + " — it can now be picked as a Pack SKU on a listing."
+        )
+    st.session_state[_FLASH] = msg
+    st.session_state.pop(editor_key, None)
+    st.rerun()
+
 
 def render():
     """Render the Data Manager UI page."""
@@ -39,6 +64,9 @@ def render():
         except Exception as e:
             show_error(logger, "Failed to initialize services", e)
             return
+
+        if _FLASH in st.session_state:
+            st.success(st.session_state.pop(_FLASH))
 
         st.caption(
             "**Product** (Master SKU) → **Pack** (Pack SKU: a number of units of one "
@@ -148,7 +176,11 @@ def render():
                             }, create_single_pack=create_pack)
                             clear_catalog_cache()
                             logger.info(f"Product created successfully: {sku}")
-                            st.success(f"Created {sku}")
+                            created = str(sku).strip().upper()
+                            st.session_state[_FLASH] = (
+                                f"✅ Created product {created}"
+                                + (f" and its single-unit pack {created}." if create_pack else ".")
+                            )
                             st.rerun()
                         except DataValidationException as e:
                             st.error(f"❌ {e}")
@@ -165,9 +197,7 @@ def render():
                 )
                 if st.button("Save Product Changes"):
                     try:
-                        saved = service.save_table_edits('product_master', edited_prod)
-                        clear_all_caches()
-                        st.success(f"Saved {saved} products.")
+                        _save_grid(service, 'product_master', edited_prod, "editor_prod", "products")
                     except DataValidationException as e:
                         st.error(f"❌ Not saved: {e}")
                     except Exception as e:
@@ -211,7 +241,7 @@ def render():
                             })
                             clear_catalog_cache()
                             logger.info(f"Pack created successfully: {pack_sku}")
-                            st.success(f"Created Pack {pack_sku}")
+                            st.session_state[_FLASH] = f"✅ Created pack {str(pack_sku).strip().upper()}."
                             st.rerun()
                         except DataValidationException as e:
                             st.error(f"❌ {e}")
@@ -228,9 +258,7 @@ def render():
                 )
                 if st.button("Save Pack Changes"):
                     try:
-                        saved = service.save_table_edits('pack_master', edited_pack)
-                        clear_all_caches()
-                        st.success(f"Saved {saved} packs.")
+                        _save_grid(service, 'pack_master', edited_pack, "editor_pack", "packs")
                     except DataValidationException as e:
                         st.error(f"❌ Not saved: {e}")
                     except Exception as e:
@@ -289,7 +317,9 @@ def render():
                             })
                             clear_catalog_cache()
                             logger.info(f"Listing created: {channel_sku} on {marketplace}")
-                            st.success(f"Linked {channel_sku} -> {selected_pack}")
+                            st.session_state[_FLASH] = (
+                                f"✅ Linked listing {str(channel_sku).strip().upper()} → pack {selected_pack}."
+                            )
                             st.rerun()
                         except DataValidationException as e:
                             st.error(f"❌ {e}")
@@ -321,9 +351,7 @@ def render():
                 )
                 if st.button("Save Listing Changes"):
                     try:
-                        saved = service.save_table_edits('channel_listings', edited_list)
-                        clear_all_caches()
-                        st.success(f"Saved {saved} listings.")
+                        _save_grid(service, 'channel_listings', edited_list, "editor_list", "listings")
                     except DataValidationException as e:
                         st.error(f"❌ Not saved: {e}")
                     except Exception as e:

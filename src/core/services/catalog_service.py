@@ -457,7 +457,7 @@ class CatalogService:
                              "check_as": "listings", "key_label": "Listing SKU / Marketplace"},
     }
 
-    def save_table_edits(self, table: str, df: pd.DataFrame) -> int:
+    def save_table_edits(self, table: str, df: pd.DataFrame) -> dict:
         """Save a whole edited grid back to its table, keeping the table's schema.
 
         Replaces the rows (DELETE + INSERT in one transaction) rather than the
@@ -472,12 +472,16 @@ class CatalogService:
             (see find_catalog_link_problems). Problems that already existed
             before the edit do not block it — they are shown on the page.
 
+        A product added to the Products grid also gets a single-unit pack
+        (Pack SKU = Master SKU), the same as Add Product and the Onboarding
+        Wizard, so it can be listed straight away.
+
         Args:
             table: one of product_master, pack_master, channel_listings
             df: the full edited grid
 
         Returns:
-            int: number of rows saved
+            dict: {"saved": rows saved, "packs_created": [Pack SKUs auto-created]}
 
         Raises:
             DataValidationException: if the edit would break the data
@@ -524,15 +528,28 @@ class CatalogService:
                 if new_problems:
                     raise DataValidationException(" ".join(new_problems))
 
+                packs_created = []
+                if table == "product_master":
+                    old_skus = {r[0] for r in conn.execute(text("SELECT sku FROM product_master"))}
+                    has_pack = {r[0] for r in conn.execute(text("SELECT pack_sku FROM pack_master"))}
+                    packs_created = sorted(set(df["sku"]) - old_skus - has_pack)
+
                 save_df = df[[c for c in df.columns if c in table_cols]]
                 # Rows are deleted and re-inserted, so foreign-key checks (when
                 # enabled) must wait until COMMIT, when every row is back.
                 conn.execute(text("PRAGMA defer_foreign_keys = ON"))
                 conn.execute(text(f"DELETE FROM {table}"))
                 save_df.to_sql(table, conn, if_exists="append", index=False)
+                for sku in packs_created:
+                    self._insert_new(conn, "pack_master", {
+                        "pack_sku": sku, "master_sku": sku, "quantity": 1, "packaging_cogs": 0,
+                    })
 
-            logger.info(f"Saved {len(save_df)} row(s) to {table} (schema preserved)")
-            return len(save_df)
+            logger.info(
+                f"Saved {len(save_df)} row(s) to {table} (schema preserved); "
+                f"single-unit packs created: {packs_created or 'none'}"
+            )
+            return {"saved": len(save_df), "packs_created": packs_created}
         except DataValidationException:
             raise
         except Exception as e:
