@@ -6,6 +6,7 @@ from src.infrastructure.logger import get_logger
 from src.ui.components.errors import show_error
 from src.ui.cache_adapter import get_profitability_cached
 from src.ui.cache_adapter import get_marketplaces
+from src.ui.cache_adapter import get_seller_accounts
 
 logger = get_logger(__name__)
 
@@ -29,8 +30,28 @@ def render():
         if not marketplaces:
             st.error("No marketplaces configured. Add them in Catalog → Config.")
             return
-        mkt = st.selectbox("Select Marketplace", marketplaces, index=0, key="profit_mkt")
-        logger.debug(f"User selected marketplace: {mkt}")
+        accounts = get_seller_accounts()
+        sel_col1, sel_col2 = st.columns(2)
+        with sel_col1:
+            if len(accounts) > 1:
+                acct_labels = ["All accounts"] + [a[1] for a in accounts]
+                acct_choice = st.selectbox(
+                    "Seller Account", acct_labels, index=0, key="profit_acct"
+                )
+                acct = None
+                if acct_choice != "All accounts":
+                    acct = next(a[0] for a in accounts if a[1] == acct_choice)
+            else:
+                acct = None
+                st.selectbox(
+                    "Seller Account",
+                    [accounts[0][1] if accounts else "Account 1"],
+                    disabled=True,
+                    key="profit_acct",
+                )
+        with sel_col2:
+            mkt = st.selectbox("Marketplace", marketplaces, index=0, key="profit_mkt")
+        logger.debug(f"User selected marketplace: {mkt}, account: {acct or 'ALL'}")
 
         # --- Fee rules freshness indicator ---
         try:
@@ -53,7 +74,7 @@ def render():
 
         # --- Fetch profitability data ---
         try:
-            df = get_profitability_cached(marketplace=mkt)
+            df = get_profitability_cached(marketplace=mkt, account=acct)
         except Exception as e:
             show_error(logger, "Failed to calculate profitability", e)
             return
@@ -74,16 +95,21 @@ def render():
             return
 
         # --- Metrics ---
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         avg_margin = df['margin_pct'].mean()
         avg_profit = df['net_profit'].mean()
         profitable_count = len(df[df['net_profit'] > 0])
         loss_count = len(df[df['net_profit'] <= 0])
+        avg_itc = df['gst_on_fees'].mean() if 'gst_on_fees' in df.columns else 0.0
 
-        c1.metric("Avg Margin", f"{avg_margin:.1f}%")
-        c2.metric("Avg Net Profit", f"₹{avg_profit:.1f}")
+        c1.metric("Avg Margin", f"{avg_margin:.1f}%",
+                  help="Net profit as a share of revenue excluding GST")
+        c2.metric("Avg Net Profit", f"₹{avg_profit:.1f}", help="Per unit sold")
         c3.metric("Profitable SKUs", profitable_count)
         c4.metric("Loss Makers", loss_count, delta_color="inverse")
+        c5.metric("Avg ITC per unit", f"₹{avg_itc:.2f}",
+                  help="GST paid on marketplace fees — reclaimed in your GST "
+                       "return, so it is not counted as a cost here")
 
         logger.debug(
             f"Dashboard metrics - Avg Margin: {avg_margin:.1f}%, "
@@ -95,11 +121,24 @@ def render():
         # --- Profit breakdown table ---
         st.subheader("Profit Breakdown")
 
-        view_df = df[[
-            'channel_sku', 'product_name', 'selling_price', 'total_cogs',
-            'total_platform_fees', 'net_profit', 'margin_pct'
-        ]].copy()
-        view_df.columns = ['SKU', 'Product Name', 'Price', 'COGS', 'Fees+GST', 'Net Profit', 'Margin %']
+        st.caption(
+            "Revenue excludes output GST. Fees exclude the GST you reclaim as "
+            "input credit. TCS and TDS are withheld from your payout but "
+            "recovered later, so they are not charged against profit."
+        )
+
+        cols = [
+            'channel_sku', 'product_name', 'selling_price', 'revenue_ex_gst',
+            'total_cogs', 'shipping_fee', 'fees_ex_gst', 'net_profit', 'margin_pct',
+        ]
+        labels = [
+            'SKU', 'Product Name', 'Price (incl GST)', 'Revenue (ex GST)',
+            'COGS', 'of which Shipping', 'Fees (ex GST)', 'Net Profit', 'Margin %',
+        ]
+        cols = [c for c in cols if c in df.columns]
+        labels = labels[:len(cols)]
+        view_df = df[cols].copy()
+        view_df.columns = labels
 
         # Color-code margin column
         def highlight_margin(val):
@@ -112,12 +151,9 @@ def render():
 
         st.dataframe(
             view_df.style.map(highlight_margin, subset=['Margin %']).format({
-                'Price': '₹{:.2f}',
-                'COGS': '₹{:.2f}',
-                'Fees+GST': '₹{:.2f}',
-                'Net Profit': '₹{:.2f}',
-                'Margin %': '{:.1f}%',
-            }),
+                c: '₹{:.2f}' for c in view_df.columns
+                if c not in ('SKU', 'Product Name', 'Margin %')
+            } | {'Margin %': '{:.1f}%'}),
             width='stretch',
             hide_index=True,
             height=500

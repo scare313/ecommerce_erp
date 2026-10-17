@@ -297,7 +297,34 @@ class OnboardingService:
     # STEP 4: DIFF AGAINST EXISTING DB (for re-run idempotency)
     # =========================================================================
 
-    def compute_diff(self, staging_df, grouped_df):
+    def _find_account_clashes(self, conn, staging_df, account_id):
+        """Return listings in staging_df already owned by a different account.
+
+        A listing is keyed on (channel_sku, marketplace) alone, so importing the
+        same SKU string on the same marketplace for another account would
+        overwrite the first account's listing.
+        """
+        existing = pd.read_sql(
+            "SELECT channel_sku, marketplace, "
+            "COALESCE(account_id, 'account1') AS account_id FROM channel_listings",
+            conn,
+        )
+        owners = {
+            (r.channel_sku, r.marketplace): r.account_id
+            for r in existing.itertuples(index=False)
+        }
+        clashes = []
+        for row in staging_df[['channel_sku', 'marketplace']].drop_duplicates().itertuples(index=False):
+            owner = owners.get((row.channel_sku, row.marketplace))
+            if owner and owner != account_id:
+                clashes.append({
+                    'channel_sku': row.channel_sku,
+                    'marketplace': row.marketplace,
+                    'owned_by': owner,
+                })
+        return clashes
+
+    def compute_diff(self, staging_df, grouped_df, account_id=None):
         """
         Compare staging data against existing DB to produce a diff report.
 
@@ -307,6 +334,8 @@ class OnboardingService:
         Args:
             staging_df: Original unified staging DataFrame (per-listing rows)
             grouped_df: Grouped product rows from auto_group()
+            account_id: Seller account the files belong to. When given, the
+                        report lists listings already owned by another account.
 
         Returns:
             dict: {
@@ -336,6 +365,10 @@ class OnboardingService:
                     "SELECT channel_sku, marketplace, internal_sku, "
                     "selling_price, listing_status FROM channel_listings",
                     conn,
+                )
+                account_clashes = (
+                    self._find_account_clashes(conn, staging_df, account_id)
+                    if account_id else []
                 )
 
             # --- Product diff ---
@@ -440,6 +473,7 @@ class OnboardingService:
                 'dim_updates': dim_updates,
                 'new_product_skus': sorted(list(new_products)),
                 'new_listing_keys': new_listings,
+                'account_clashes': account_clashes,
             }
 
             logger.info(
@@ -460,7 +494,8 @@ class OnboardingService:
     # STEP 5: COMMIT (UPSERT)
     # =========================================================================
 
-    def commit_catalog(self, staging_df, grouped_df, name_resolutions=None):
+    def commit_catalog(self, staging_df, grouped_df, name_resolutions=None,
+                       account_id='account1', amazon_fulfilment='easy_ship'):
         """
         Commit catalog data via upsert.
 
@@ -470,7 +505,13 @@ class OnboardingService:
             - pack_master: dimensions only updated when staging has non-NULL values
               (COALESCE prevents wiping with NULL); quantity/packaging_cogs untouched
             - channel_listings: selling_price/listing_status always updated (price
-              drift is real); internal_sku updated on remap
+              drift is real); internal_sku updated on remap. account_id and
+              fulfilment_type are set on insert only — a per-listing fulfilment
+              edited in Catalog is never overwritten by a re-run.
+
+        Products and packs are shared by both seller accounts; only listings
+        belong to an account. If any listing in the files is already owned by
+        another account, nothing is saved.
 
         Insert order matches bulk_service [4]:
             Products → Packs → Listings (FK dependency order)
@@ -479,6 +520,10 @@ class OnboardingService:
             staging_df: Original unified staging DataFrame (per-listing rows)
             grouped_df: Grouped product rows from auto_group()
             name_resolutions: Optional dict {sku: chosen_name} from conflict UI
+            account_id: Seller account (seller_accounts.account_id) the files belong to
+            amazon_fulfilment: 'easy_ship' or 'fba' for the Amazon listings in
+                               these files. Flipkart and Meesho are always
+                               self-shipped ('easy_ship').
 
         Returns:
             dict: Summary of commit operation
@@ -502,6 +547,19 @@ class OnboardingService:
             listings_upserted = 0
 
             with self.engine.begin() as conn:
+                # ---------- 0. REFUSE CROSS-ACCOUNT OVERWRITES ----------
+                clashes = self._find_account_clashes(conn, staging_df, account_id)
+                if clashes:
+                    shown = ", ".join(
+                        f"{c['channel_sku']} ({c['marketplace']}, {c['owned_by']})"
+                        for c in clashes[:10]
+                    )
+                    raise DataValidationException(
+                        f"{len(clashes)} listing(s) already belong to another seller "
+                        f"account: {shown}. Nothing was saved. Check you chose the "
+                        "right account for these files."
+                    )
+
                 # ---------- 1. PRODUCT_MASTER UPSERT ----------
                 logger.debug("Upserting product_master rows...")
                 for _, row in grouped_df.iterrows():
@@ -589,11 +647,13 @@ class OnboardingService:
                         INSERT INTO channel_listings (
                             channel_sku, marketplace, internal_sku,
                             listing_status, selling_price,
-                            channel_id, listing_url, last_updated, comment
+                            channel_id, listing_url, last_updated, comment,
+                            account_id, fulfilment_type
                         ) VALUES (
                             :channel_sku, :marketplace, :internal_sku,
                             :listing_status, :selling_price,
-                            :channel_id, '', :last_updated, ''
+                            :channel_id, '', :last_updated, '',
+                            :account_id, :fulfilment_type
                         )
                         ON CONFLICT(channel_sku, marketplace) DO UPDATE SET
                             -- Always update price (price drift is real)
@@ -602,8 +662,8 @@ class OnboardingService:
                             internal_sku = excluded.internal_sku,
                             channel_id = excluded.channel_id,
                             last_updated = excluded.last_updated
-                            -- listing_url, comment NEVER touched
-                            -- (preserves user-entered notes/URLs)
+                            -- listing_url, comment, account_id, fulfilment_type
+                            -- NEVER touched (preserves user edits)
                     """), {
                         'channel_sku': row['channel_sku'],
                         'marketplace': row['marketplace'],
@@ -612,6 +672,12 @@ class OnboardingService:
                         'selling_price': selling_price,
                         'channel_id': row.get('channel_id') or '',
                         'last_updated': now_str,
+                        'account_id': account_id,
+                        'fulfilment_type': (
+                            amazon_fulfilment
+                            if str(row['marketplace']).lower() == 'amazon'
+                            else 'easy_ship'
+                        ),
                     })
 
                     listings_upserted += 1

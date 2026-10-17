@@ -46,10 +46,19 @@ def get_pack_dropdown_cached() -> list[str]:
     return data_access.get_pack_dropdown()
 
 
+@st.cache_data(ttl=LONG_TTL, show_spinner=False)
+def get_seller_accounts() -> list[tuple[str, str]]:
+    """Cached active seller accounts as (account_id, display_name). Cached 30 min."""
+    return data_access.get_seller_accounts()
+
+
 @st.cache_data(ttl=MEDIUM_TTL, show_spinner="Calculating profitability...")
-def get_profitability_cached(marketplace: str | None = None):
+def get_profitability_cached(
+    marketplace: str | None = None,
+    account: str | None = None,
+):
     """Cached profitability calculation."""
-    return data_access.get_profitability(marketplace)
+    return data_access.get_profitability(marketplace, account)
 
 
 @st.cache_data(ttl=MEDIUM_TTL, show_spinner="Building gap matrix...")

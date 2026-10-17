@@ -68,7 +68,8 @@ class TestCalculateProfitabilityHappyPath:
         # These columns are documented in the docstring [3]
         expected_subset = {
             "marketplace", "channel_sku", "selling_price",
-            "ref_fee", "closing_fee", "shipping_fee", "gst_fee",
+            "ref_fee", "closing_fee", "shipping_fee", "tech_fee",
+            "fees_ex_gst", "gst_on_fees", "revenue_ex_gst",
         }
         missing = expected_subset - set(df.columns)
         assert not missing, f"Missing expected columns: {missing}"
@@ -255,14 +256,19 @@ class TestShippingFee:
 @pytest.mark.unit
 @pytest.mark.finance
 class TestGstOnFees:
-    """GST on Fees = (referral + closing + shipping) × gst_pct (default 0.18) [3]."""
+    """GST on fees = fees_ex_gst x gst_pct (default 0.18).
+
+    This amount is INPUT TAX CREDIT, reclaimed in the GST return, so it is
+    reported on its own and never charged against net_profit.
+    """
 
     def test_gst_calculated_on_total_fees(self, patch_get_engine, assert_close):
         """
         For TSHIRT-BLK-PK1 on Amazon:
-            ref_fee     = 499 × 0.17 = 84.83
+            ref_fee     = 499 x 0.17 = 84.83
             closing_fee = 25
             shipping    = 45
+            tech_fee    = 0 (merchant-fulfilled)
             sum         = 154.83
             gst (18%)   = 27.87
         """
@@ -270,22 +276,48 @@ class TestGstOnFees:
         df = service.calculate_profitability(marketplace_filter="Amazon")
 
         row = df[df["channel_sku"] == "AMZ-TSHIRT-BLK-1"].iloc[0]
-        expected_gst = (row["ref_fee"] + row["closing_fee"] + row["shipping_fee"]) * 0.18
-        assert_close(row["gst_fee"], expected_gst, tol=0.5)
+        expected_gst = row["fees_ex_gst"] * 0.18
+        assert_close(row["gst_on_fees"], expected_gst, tol=0.5)
 
     def test_gst_is_non_negative(self, patch_get_engine):
         service = FinanceService()
         df = service.calculate_profitability()
-        assert (df["gst_fee"] >= 0).all()
+        assert (df["gst_on_fees"] >= 0).all()
 
     def test_gst_consistent_across_all_rows(self, patch_get_engine, assert_close):
-        """Every row's GST should equal (ref+closing+shipping) × gst_pct."""
+        """Every row's GST should equal fees_ex_gst x gst_pct."""
         service = FinanceService()
         df = service.calculate_profitability()
 
         for _, row in df.iterrows():
-            expected = (row["ref_fee"] + row["closing_fee"] + row["shipping_fee"]) * 0.18
-            assert_close(row["gst_fee"], expected, tol=0.5)
+            expected = row["fees_ex_gst"] * 0.18
+            assert_close(row["gst_on_fees"], expected, tol=0.5)
+
+    def test_fees_ex_gst_sums_components(self, patch_get_engine, assert_close):
+        """fees_ex_gst = referral + closing + shipping + technology."""
+        service = FinanceService()
+        df = service.calculate_profitability()
+
+        for _, row in df.iterrows():
+            expected = (
+                row["ref_fee"] + row["closing_fee"]
+                + row["shipping_fee"] + row["tech_fee"]
+            )
+            assert_close(row["fees_ex_gst"], expected, tol=0.01)
+
+    def test_itc_is_excluded_from_profit(self, patch_get_engine, assert_close):
+        """Profit must not be reduced by GST the seller reclaims."""
+        service = FinanceService()
+        df = service.calculate_profitability()
+
+        for _, row in df.iterrows():
+            without_itc = (
+                row["revenue_ex_gst"] - row["total_cogs"]
+                - row["fees_ex_gst"] - row["gst_on_fees"]
+            )
+            assert row["net_profit"] >= without_itc - 0.01, (
+                "net_profit should not be charged the reclaimable GST on fees"
+            )
 
 
 # ===========================================================================
@@ -296,11 +328,11 @@ class TestGstOnFees:
 @pytest.mark.finance
 class TestTotalDeduction:
     """
-    Total Deduction = ref_fee + closing_fee + shipping_fee + gst_fee [3]
+    total_platform_fees = fees_ex_gst + gst_on_fees
 
-    Source [3] confirms:
-        total_deduction = total_fees_excl_gst + gst_amt
-    where total_fees_excl_gst = ref_fee + closing_fee + shipping_cost
+    This is the GROSS cash the marketplace deducts, GST included, which is what
+    a settlement report quotes. It is kept for bank reconciliation; profit uses
+    fees_ex_gst instead, because the GST portion is reclaimed.
     """
 
     def test_total_platform_fees_column_exists(self, patch_get_engine):
@@ -314,12 +346,7 @@ class TestTotalDeduction:
         df = service.calculate_profitability()
 
         for _, row in df.iterrows():
-            expected = (
-                row["ref_fee"]
-                + row["closing_fee"]
-                + row["shipping_fee"]
-                + row["gst_fee"]
-            )
+            expected = row["fees_ex_gst"] + row["gst_on_fees"]
             assert_close(row["total_platform_fees"], expected, tol=0.5)
 
     def test_total_is_non_negative(self, patch_get_engine):
@@ -688,7 +715,7 @@ class TestDefaultGstFallback:
         row = df.iloc[0]
         # Verify GST was applied at the 0.18 default rate
         expected_gst = (row["ref_fee"] + row["closing_fee"] + row["shipping_fee"]) * 0.18
-        assert_close(row["gst_fee"], expected_gst, tol=0.5)
+        assert_close(row["gst_on_fees"], expected_gst, tol=0.5)
 
 
 # ===========================================================================
@@ -855,9 +882,13 @@ class TestBillableWeight:
 @pytest.mark.finance
 class TestNetProfitAndMargin:
     """
-    Per README [22]:
-        Net Profit = Selling Price - COGS - Total Fees - GST
-        Margin %   = (Net Profit / Selling Price) × 100
+    Corrected in E12:
+        net_profit = revenue_ex_gst - fees_ex_gst - total_cogs
+        margin_pct = (net_profit / revenue_ex_gst) x 100
+
+    Output GST is excluded from revenue (it belongs to the government), input
+    GST on fees is excluded from cost (it is reclaimed), and TCS/TDS are
+    excluded entirely (they are recoverable credits, not expenses).
     """
 
     def test_net_profit_column_exists(self, patch_get_engine):
@@ -871,31 +902,48 @@ class TestNetProfitAndMargin:
         assert "margin_pct" in df.columns
 
     def test_net_profit_formula(self, patch_get_engine, assert_close):
-        """
-        For each row:
-            net_profit = selling_price - total_cogs - total_platform_fees [22]
-        Note: total_platform_fees already includes GST [3].
-        """
+        """net_profit = revenue_ex_gst - fees_ex_gst - total_cogs."""
         service = FinanceService()
         df = service.calculate_profitability()
 
         for _, row in df.iterrows():
             expected = (
-                row["selling_price"]
+                row["revenue_ex_gst"]
+                - row["fees_ex_gst"]
                 - row["total_cogs"]
-                - row["total_platform_fees"]
-                - row.get("tcs_tds", 0.0)
             )
             assert_close(row["net_profit"], expected, tol=0.5)
 
-    def test_margin_pct_formula(self, patch_get_engine, assert_close):
-        """margin_pct = (net_profit / selling_price) × 100 [22]."""
+    def test_revenue_excludes_output_gst(self, patch_get_engine, assert_close):
+        """revenue_ex_gst + gst_collected must equal the listed price."""
         service = FinanceService()
         df = service.calculate_profitability()
 
         for _, row in df.iterrows():
-            if row["selling_price"] > 0:
-                expected = (row["net_profit"] / row["selling_price"]) * 100
+            assert_close(
+                row["revenue_ex_gst"] + row["gst_collected"],
+                row["selling_price"],
+                tol=0.01,
+            )
+
+    def test_tcs_tds_not_charged_to_profit(self, patch_get_engine):
+        """TCS and TDS are recoverable, so profit must not move with them."""
+        service = FinanceService()
+        df = service.calculate_profitability()
+
+        charged = df["revenue_ex_gst"] - df["fees_ex_gst"] - df["total_cogs"] - df["tcs_tds"]
+        assert not (df["net_profit"] - charged).abs().lt(0.001).all() or (df["tcs_tds"] == 0).all(), (
+            "net_profit appears to deduct TCS/TDS, which are recoverable credits"
+        )
+
+    def test_margin_pct_formula(self, patch_get_engine, assert_close):
+        """margin_pct = (net_profit / revenue_ex_gst) x 100."""
+        service = FinanceService()
+        df = service.calculate_profitability()
+
+        for _, row in df.iterrows():
+            if row["revenue_ex_gst"] > 0:
+                expected = (row["net_profit"] / row["revenue_ex_gst"]) * 100
                 assert_close(row["margin_pct"], expected, tol=0.5)
 
     def test_settlement_value_column_exists(self, patch_get_engine):

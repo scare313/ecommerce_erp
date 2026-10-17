@@ -84,10 +84,33 @@ def get_pack_dropdown() -> list[str]:
     return CatalogService().get_pack_dropdown()
 
 
-def get_profitability(marketplace: str | None = None) -> pd.DataFrame:
+def get_seller_accounts() -> list[tuple[str, str]]:
+    """Return active seller accounts as (account_id, display_name) pairs."""
+    try:
+        engine = get_engine()
+        df = pd.read_sql(
+            "SELECT account_id, display_name FROM seller_accounts "
+            "WHERE is_active = 1 ORDER BY account_id",
+            engine,
+        )
+        if df.empty:
+            return [("account1", "Account 1")]
+        return list(df.itertuples(index=False, name=None))
+    except Exception as e:
+        logger.warning(f"get_seller_accounts failed, defaulting to one account: {e}")
+        return [("account1", "Account 1")]
+
+
+def get_profitability(
+    marketplace: str | None = None,
+    account: str | None = None,
+) -> pd.DataFrame:
     """Profitability calculation, via FinanceService."""
     from src.core.services.finance_service import FinanceService
-    return FinanceService().calculate_profitability(marketplace_filter=marketplace)
+    return FinanceService().calculate_profitability(
+        marketplace_filter=marketplace,
+        account_filter=account,
+    )
 
 
 def get_gap_matrix() -> pd.DataFrame:

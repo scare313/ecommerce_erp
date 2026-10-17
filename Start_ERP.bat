@@ -1,12 +1,10 @@
 @echo off
-:: Navigate to your project folder (Optional if the bat is already in the project folder)
+:: Run from the project folder, whichever folder this file is launched from
 cd /d "%~dp0"
 
-:: Activate the virtual environment (change 'venv' to your folder name)
-call venv\Scripts\activate
-
-:: Run the Streamlit app
-streamlit run main.py
+:: Use the project's own Python environment (.venv) directly, so the app never
+:: runs on a different Python that lacks the right packages
+".venv\Scripts\python.exe" -m streamlit run main.py
 
 :: Keep the window open if the app crashes
 pause

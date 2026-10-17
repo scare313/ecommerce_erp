@@ -85,7 +85,11 @@ CREATE TABLE channel_listings (
     listing_url TEXT,
     last_updated VARCHAR(50),
     comment TEXT,
-    
+
+    -- Owning seller account (GSTIN) and how orders are fulfilled (E12)
+    account_id VARCHAR(50) DEFAULT 'account1',
+    fulfilment_type VARCHAR(30) DEFAULT 'easy_ship',
+
     PRIMARY KEY (channel_sku, marketplace)
 );
 

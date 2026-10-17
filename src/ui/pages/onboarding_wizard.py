@@ -21,7 +21,8 @@ from src.core.services.onboarding_service import OnboardingService
 from src.infrastructure.database import get_engine
 from src.infrastructure.logger import get_logger
 from src.ui.components.errors import show_error
-from src.ui.cache_adapter import clear_all_caches
+from src.ui.cache_adapter import clear_all_caches, get_seller_accounts
+from src.infrastructure.logger import DataValidationException
 from sqlalchemy import text
 
 logger = get_logger(__name__)
@@ -43,6 +44,14 @@ SS_DIFF = "onboarding_diff"
 SS_PARSE_ERRORS = "onboarding_parse_errors"
 SS_COMMIT_SUMMARY = "onboarding_commit_summary"
 SS_CAT_MAPPINGS = "onboarding_category_mappings"
+SS_ACCOUNT = "onboarding_account_id"
+SS_AMAZON_FULFILMENT = "onboarding_amazon_fulfilment"
+
+# Label shown to the user -> value stored in channel_listings.fulfilment_type
+AMAZON_FULFILMENT_OPTIONS = {
+    "Easy Ship / self-ship": "easy_ship",
+    "FBA (Amazon ships)": "fba",
+}
 
 
 def _init_state():
@@ -60,6 +69,8 @@ def _init_state():
         SS_PARSE_ERRORS: [],
         SS_COMMIT_SUMMARY: None,
         SS_CAT_MAPPINGS: {},
+        SS_ACCOUNT: None,
+        SS_AMAZON_FULFILMENT: "easy_ship",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -70,7 +81,8 @@ def _reset_state():
     """Reset all wizard state — used on 'Start Over' button."""
     for k in [SS_STEP, SS_RAW_STAGING_DF, SS_SIMILARITY_GROUPS, SS_SKU_MERGES,
               SS_STAGING_DF, SS_GROUPED_DF, SS_CONFLICTS,
-              SS_RESOLUTIONS, SS_DIFF, SS_PARSE_ERRORS, SS_COMMIT_SUMMARY, SS_CAT_MAPPINGS]:
+              SS_RESOLUTIONS, SS_DIFF, SS_PARSE_ERRORS, SS_COMMIT_SUMMARY, SS_CAT_MAPPINGS,
+              SS_ACCOUNT, SS_AMAZON_FULFILMENT]:
         if k in st.session_state:
             del st.session_state[k]
     _init_state()
@@ -193,6 +205,27 @@ def _render_step_1_upload():
         "All files are optional — upload whichever you have."
     )
 
+    # Which seller account these files came from. Upload one account at a
+    # time: run the wizard once for Account 1's files, then again for Account 2.
+    accounts = get_seller_accounts()
+    acc_col, ful_col = st.columns(2)
+    with acc_col:
+        account_label = st.selectbox(
+            "Seller account these files belong to",
+            [a[1] for a in accounts],
+            key="onb_account",
+            help="Run the wizard once per account. Products are shared; "
+                 "listings are kept per account.",
+        )
+    with ful_col:
+        fulfilment_label = st.selectbox(
+            "How are the Amazon listings fulfilled?",
+            list(AMAZON_FULFILMENT_OPTIONS),
+            key="onb_amazon_fulfilment",
+            help="Applies to new Amazon listings only. Change individual "
+                 "listings later in Catalog → Listings.",
+        )
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("**🟠 Amazon**")
@@ -274,6 +307,10 @@ def _render_step_1_upload():
                 st.session_state[SS_GROUPED_DF] = grouped_df
                 st.session_state[SS_CONFLICTS] = conflicts
                 st.session_state[SS_PARSE_ERRORS] = parse_errors
+                st.session_state[SS_ACCOUNT] = next(
+                    a[0] for a in accounts if a[1] == account_label
+                )
+                st.session_state[SS_AMAZON_FULFILMENT] = AMAZON_FULFILMENT_OPTIONS[fulfilment_label]
 
                 # Pre-seed resolutions with defaults (longest name)
                 st.session_state[SS_RESOLUTIONS] = {
@@ -416,7 +453,10 @@ def _render_step_4_merging():
             with st.spinner("Analyzing products..."):
                 service = OnboardingService()
                 grouped_df, conflicts = service.auto_group(staging_df_base)
-                diff = service.compute_diff(staging_df_base, grouped_df)
+                diff = service.compute_diff(
+                    staging_df_base, grouped_df,
+                    account_id=st.session_state[SS_ACCOUNT],
+                )
 
                 st.session_state[SS_GROUPED_DF] = grouped_df
                 st.session_state[SS_CONFLICTS] = conflicts
@@ -488,7 +528,10 @@ def _render_step_4_merging():
             with st.spinner("Analyzing merged products and conflicts..."):
                 service = OnboardingService()
                 grouped_df, conflicts = service.auto_group(staging_df)
-                diff = service.compute_diff(staging_df, grouped_df)
+                diff = service.compute_diff(
+                    staging_df, grouped_df,
+                    account_id=st.session_state[SS_ACCOUNT],
+                )
 
                 st.session_state[SS_GROUPED_DF] = grouped_df
                 st.session_state[SS_CONFLICTS] = conflicts
@@ -782,6 +825,29 @@ def _render_step_6_diff():
             "User-curated fields (COGS, category, custom GST rates) will be preserved."
         )
 
+    account_id = st.session_state.get(SS_ACCOUNT) or "account1"
+    account_name = dict(get_seller_accounts()).get(account_id, account_id)
+    fulfilment = st.session_state.get(SS_AMAZON_FULFILMENT, "easy_ship")
+    st.markdown(
+        f"Listings will be saved under **{account_name}**; new Amazon listings as "
+        f"**{'FBA' if fulfilment == 'fba' else 'Easy Ship / self-ship'}**."
+    )
+
+    clashes = diff.get('account_clashes', [])
+    if clashes:
+        st.error(
+            f"⛔ {len(clashes)} listing(s) in these files already belong to another "
+            "seller account. Saving would overwrite them, so it is blocked. "
+            "Go back to Step 1 and check you picked the right account."
+        )
+        st.dataframe(
+            pd.DataFrame(clashes).rename(columns={
+                'channel_sku': 'Channel SKU', 'marketplace': 'Marketplace',
+                'owned_by': 'Currently owned by',
+            }),
+            hide_index=True, width='stretch',
+        )
+
     # Top-line metrics
     st.subheader("📈 Change Summary")
     m1, m2, m3, m4 = st.columns(4)
@@ -858,7 +924,8 @@ def _render_step_6_diff():
             st.rerun()
     with col_commit:
         commit_label = "✅ Commit to Database" if is_first else "✅ Apply Changes"
-        if st.button(commit_label, type="primary", key="onb_step6_commit"):
+        if st.button(commit_label, type="primary", key="onb_step6_commit",
+                     disabled=bool(clashes)):
             _execute_commit()
 
 
@@ -960,6 +1027,8 @@ def _execute_commit():
                 staging_df=staging_df,
                 grouped_df=grouped_df,
                 name_resolutions=resolutions,
+                account_id=st.session_state.get(SS_ACCOUNT) or "account1",
+                amazon_fulfilment=st.session_state.get(SS_AMAZON_FULFILMENT, "easy_ship"),
             )
 
             # Cache invalidation so dashboards see new data immediately.
@@ -975,6 +1044,8 @@ def _execute_commit():
             logger.info(f"✅ Commit successful: {summary}")
             st.rerun()
 
+        except DataValidationException as e:
+            st.error(f"❌ {e}")
         except Exception as e:
             show_error(logger, "Commit failed", e)
             st.info(

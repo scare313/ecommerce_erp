@@ -206,7 +206,19 @@ class CatalogService:
             # Warn if no price
             if not data.get('selling_price') or data.get('selling_price') <= 0:
                 logger.warning(f"Listing {channel_sku} has no selling price. Profit calculations may be inaccurate.")
-            
+
+            # A listing is keyed on (channel_sku, marketplace) only, so the same
+            # SKU string on the same marketplace under the other seller account
+            # would overwrite this one. Refuse instead of replacing it.
+            if data.get('account_id'):
+                owner = self.get_listing_owner(data['channel_sku'], data['marketplace'])
+                if owner and owner != data['account_id']:
+                    raise DataValidationException(
+                        f"{channel_sku} on {data['marketplace']} already belongs to "
+                        f"{owner}. The same SKU cannot be listed under two accounts "
+                        "on one marketplace."
+                    )
+
             try:
                 self._insert('channel_listings', data)
                 logger.info(f"✅ Listing created: {channel_sku} on {data.get('marketplace')}")
@@ -222,6 +234,17 @@ class CatalogService:
         except Exception as e:
             logger.error(f"Error adding listing {data.get('channel_sku', 'UNKNOWN')}: {str(e)}", exc_info=True)
             raise
+
+    def get_listing_owner(self, channel_sku: str, marketplace: str) -> str | None:
+        """Return the account_id that owns a listing, or None if it does not exist."""
+        with self.engine.connect() as conn:
+            return conn.execute(
+                text(
+                    "SELECT COALESCE(account_id, 'account1') FROM channel_listings "
+                    "WHERE channel_sku = :c AND marketplace = :m"
+                ),
+                {"c": channel_sku, "m": marketplace},
+            ).scalar()
 
     def delete_listings_for_marketplace(self, marketplace: str) -> int:
         """
@@ -258,6 +281,118 @@ class CatalogService:
         except Exception as e:
             logger.error(f"Error deleting listings for {marketplace}: {str(e)}", exc_info=True)
             raise DatabaseException(f"Failed to delete listings for {marketplace}: {str(e)}") from e
+
+    # Tables editable as a grid in Catalog: key columns, SKU columns to
+    # normalise, and the (table, column) pairs that reference this table's key.
+    _GRID_TABLES = {
+        "product_master": {
+            "key": ["sku"],
+            "sku_cols": ["sku"],
+            "referenced_by": [("pack_master", "master_sku"), ("inventory_master", "sku")],
+        },
+        "pack_master": {
+            "key": ["pack_sku"],
+            "sku_cols": ["pack_sku", "master_sku"],
+            "referenced_by": [("channel_listings", "internal_sku")],
+        },
+        "channel_listings": {
+            "key": ["channel_sku", "marketplace"],
+            "sku_cols": ["channel_sku", "internal_sku"],
+            "referenced_by": [],
+        },
+    }
+
+    def save_table_edits(self, table: str, df: pd.DataFrame) -> int:
+        """Save a whole edited grid back to its table, keeping the table's schema.
+
+        Replaces the rows (DELETE + INSERT in one transaction) rather than the
+        table itself. pandas to_sql(if_exists='replace') drops and recreates
+        the table from the DataFrame, which silently removes the primary key,
+        foreign keys and column defaults — so it must never be used here.
+
+        Refuses to save, changing nothing, if:
+          - a row has a blank key, or two rows share a key
+          - every row was removed
+          - a removed or renamed key is still used by another table
+            (e.g. a product that packs or stock still point to)
+
+        Args:
+            table: one of product_master, pack_master, channel_listings
+            df: the full edited grid
+
+        Returns:
+            int: number of rows saved
+
+        Raises:
+            DataValidationException: if the edit would break the data
+            DatabaseException: if the write fails (nothing is changed)
+        """
+        if table not in self._GRID_TABLES:
+            raise DataValidationException(f"Table {table} cannot be edited as a grid")
+        spec = self._GRID_TABLES[table]
+        keys = spec["key"]
+
+        df = df.dropna(how="all").copy()
+        for col in spec["sku_cols"]:
+            if col in df.columns:
+                df[col] = df[col].where(
+                    df[col].isna(), df[col].astype(str).str.strip().str.upper()
+                )
+
+        blank_key = pd.Series(False, index=df.index)
+        for col in keys:
+            blank_key |= df[col].isna() | (df[col].astype(str).str.strip() == "")
+        if blank_key.any():
+            raise DataValidationException(
+                f"{int(blank_key.sum())} row(s) have no {' / '.join(keys)}. "
+                "Fill it in or delete the row, then save again."
+            )
+        dupes = df[df.duplicated(subset=keys, keep=False)]
+        if not dupes.empty:
+            shown = sorted({" / ".join(str(v) for v in r) for r in dupes[keys].values})[:10]
+            raise DataValidationException(
+                f"Duplicate {' / '.join(keys)}: {', '.join(shown)}. Each must be unique."
+            )
+        if df.empty:
+            raise DataValidationException(
+                "Every row was removed. Refusing to empty the table — delete rows "
+                "individually if that is really intended."
+            )
+
+        try:
+            with self.engine.begin() as conn:
+                table_cols = [r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))]
+                old_keys = pd.read_sql(text(f"SELECT {', '.join(keys)} FROM {table}"), conn)
+
+                removed = set(map(tuple, old_keys[keys].values)) - set(map(tuple, df[keys].values))
+                if removed and spec["referenced_by"]:
+                    removed_ids = {k[0] for k in removed}  # referenced tables have single-column keys
+                    for dep_table, dep_col in spec["referenced_by"]:
+                        used = {
+                            r[0] for r in conn.execute(
+                                text(f"SELECT DISTINCT {dep_col} FROM {dep_table}")
+                            )
+                        } & removed_ids
+                        if used:
+                            raise DataValidationException(
+                                f"Cannot remove or rename {', '.join(sorted(used)[:10])}: "
+                                f"still used in {dep_table}. Change those rows first."
+                            )
+
+                save_df = df[[c for c in df.columns if c in table_cols]]
+                # Rows are deleted and re-inserted, so foreign-key checks (when
+                # enabled) must wait until COMMIT, when every row is back.
+                conn.execute(text("PRAGMA defer_foreign_keys = ON"))
+                conn.execute(text(f"DELETE FROM {table}"))
+                save_df.to_sql(table, conn, if_exists="append", index=False)
+
+            logger.info(f"Saved {len(save_df)} row(s) to {table} (schema preserved)")
+            return len(save_df)
+        except DataValidationException:
+            raise
+        except Exception as e:
+            logger.error(f"Error saving edits to {table}: {str(e)}", exc_info=True)
+            raise DatabaseException(f"Failed to save {table}: {str(e)}") from e
 
     def _insert(self, table, data):
         """

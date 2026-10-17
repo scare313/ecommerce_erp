@@ -54,6 +54,7 @@ try:
             key=f"nav_btn_{name}",
         ):
             st.session_state.nav_page = name
+            st.rerun()
 
     _nav("🏠 Home", "Home")
 

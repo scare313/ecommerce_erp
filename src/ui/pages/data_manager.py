@@ -14,13 +14,16 @@ from src.core.services.catalog_service import CatalogService
 from src.core.services.bulk_service import BulkService
 from src.core.services.supplier_service import SupplierService
 from src.infrastructure.database import get_engine
-from src.infrastructure.logger import get_logger
+from src.infrastructure.logger import get_logger, DataValidationException
 from src.ui.components.errors import show_error
 from src.ui.cache_adapter import clear_catalog_cache, clear_all_caches
-from src.ui.cache_adapter import get_marketplaces
+from src.ui.cache_adapter import get_marketplaces, get_seller_accounts
 from src.core.data_access import set_rules_last_verified, get_rules_last_verified
 
 logger = get_logger(__name__)
+
+# Label shown to the user -> value stored in channel_listings.fulfilment_type
+FULFILMENT_OPTIONS = {"Self-ship / Easy Ship": "easy_ship", "FBA (Amazon ships)": "fba"}
 
 
 def render():
@@ -135,11 +138,11 @@ def render():
                 edited_prod = st.data_editor(df_prod, key="editor_prod", num_rows="dynamic")
                 if st.button("Save Product Changes"):
                     try:
-                        with engine.connect() as conn:
-                            edited_prod.to_sql('product_master', conn, if_exists='replace', index=False)
-                            conn.commit()
-                        logger.info(f"Product changes saved: {len(edited_prod)} rows")
-                        st.success("Saved!")
+                        saved = service.save_table_edits('product_master', edited_prod)
+                        clear_all_caches()
+                        st.success(f"Saved {saved} products.")
+                    except DataValidationException as e:
+                        st.error(f"❌ Not saved: {e}")
                     except Exception as e:
                         show_error(logger, "Error saving product changes", e)
             except Exception as e:
@@ -191,11 +194,11 @@ def render():
                 edited_pack = st.data_editor(df_pack, key="editor_pack", num_rows="dynamic")
                 if st.button("Save Pack Changes"):
                     try:
-                        with engine.connect() as conn:
-                            edited_pack.to_sql('pack_master', conn, if_exists='replace', index=False)
-                            conn.commit()
-                        logger.info(f"Pack changes saved: {len(edited_pack)} rows")
-                        st.success("Saved!")
+                        saved = service.save_table_edits('pack_master', edited_pack)
+                        clear_all_caches()
+                        st.success(f"Saved {saved} packs.")
+                    except DataValidationException as e:
+                        st.error(f"❌ Not saved: {e}")
                     except Exception as e:
                         show_error(logger, "Error saving pack changes", e)
             except Exception as e:
@@ -222,21 +225,36 @@ def render():
                     status = c3.selectbox("Status", ["LIVE", "INACTIVE", "SUPPRESSED"])
                     
                     selling_price = st.number_input("Selling Price (₹)", min_value=0.0, value=0.0, help="CRITICAL: Must be > 0 for profit calculation")
-                    
+
+                    accounts = get_seller_accounts()
+                    c4, c5 = st.columns(2)
+                    account_label = c4.selectbox(
+                        "Seller Account", [a[1] for a in accounts], key="listing_account"
+                    )
+                    fulfilment_label = c5.selectbox(
+                        "Fulfilment", list(FULFILMENT_OPTIONS), key="listing_fulfilment",
+                        help="FBA = Amazon ships it (FBA fees + ₹14 tech fee). "
+                             "Self-ship covers Easy Ship and Flipkart/Meesho shipping.",
+                    )
+
                     if st.form_submit_button("Link Listing"):
                         try:
                             if selling_price <= 0:
                                 st.warning("⚠️ Warning: Selling price is 0. This SKU will show 0% margin until price is set.")
-                            
+
                             service.add_listing({
                                 "channel_sku": channel_sku, "marketplace": marketplace,
                                 "internal_sku": selected_pack, "listing_status": status,
-                                "selling_price": selling_price
+                                "selling_price": selling_price,
+                                "account_id": next(a[0] for a in accounts if a[1] == account_label),
+                                "fulfilment_type": FULFILMENT_OPTIONS[fulfilment_label],
                             })
                             clear_catalog_cache()
                             logger.info(f"Listing created: {channel_sku} on {marketplace}")
                             st.success(f"Linked {channel_sku} -> {selected_pack}")
                             st.rerun()
+                        except DataValidationException as e:
+                            st.error(f"❌ {e}")
                         except ValueError as e:
                             logger.warning(f"Validation error creating listing: {str(e)}")
                             st.error(f"❌ {str(e)}")
@@ -252,14 +270,26 @@ def render():
                         return ['background-color: #fff3cd'] * len(row)
                     return [''] * len(row)
                 
-                edited_list = st.data_editor(df_list, key="editor_list", num_rows="dynamic")
+                edited_list = st.data_editor(
+                    df_list, key="editor_list", num_rows="dynamic",
+                    column_config={
+                        "account_id": st.column_config.SelectboxColumn(
+                            "account_id", options=[a[0] for a in get_seller_accounts()],
+                            required=True,
+                        ),
+                        "fulfilment_type": st.column_config.SelectboxColumn(
+                            "fulfilment_type", options=list(FULFILMENT_OPTIONS.values()),
+                            required=True,
+                        ),
+                    },
+                )
                 if st.button("Save Listing Changes"):
                     try:
-                        with engine.connect() as conn:
-                            edited_list.to_sql('channel_listings', conn, if_exists='replace', index=False)
-                            conn.commit()
-                        logger.info(f"Listing changes saved: {len(edited_list)} rows")
-                        st.success("Saved!")
+                        saved = service.save_table_edits('channel_listings', edited_list)
+                        clear_all_caches()
+                        st.success(f"Saved {saved} listings.")
+                    except DataValidationException as e:
+                        st.error(f"❌ Not saved: {e}")
                     except Exception as e:
                         show_error(logger, "Error saving listing changes", e)
             except Exception as e:
@@ -289,13 +319,19 @@ def render():
             except Exception:
                 pass
 
-            rule_choice = st.radio("Edit:", ["Pricing Rules", "Shipping Rules", "General Config"], horizontal=True)
+            rule_choice = st.radio("Edit:", ["Pricing Rules", "Shipping Rules", "FBA Fees", "General Config"], horizontal=True)
+            if rule_choice == "Pricing Rules":
+                st.caption("fulfilment_type: **any** applies to every listing; **fba** rows "
+                           "override it for FBA listings in that price band.")
 
-            # SQL table + display column mapping (no id column exposed)
+            # SQL table + display column mapping (no id column exposed). Every
+            # column the profit maths reads must be listed: the save rewrites
+            # all rows, so an unlisted column falls back to its default.
             sql_table_map = {
-                "Pricing Rules":  ("pricing_rules", ['marketplace', 'category_ref', 'min_price', 'max_price', 'referral_fee_pct', 'closing_fee_inr']),
+                "Pricing Rules":  ("pricing_rules", ['marketplace', 'category_ref', 'fulfilment_type', 'min_price', 'max_price', 'referral_fee_pct', 'closing_fee_inr']),
                 "Shipping Rules": ("shipping_rules", ['marketplace', 'weight_slab_max_kg', 'local_fee', 'regional_fee', 'national_fee']),
-                "General Config": ("config",         ['marketplace', 'default_zone', 'volumetric_divisor', 'gst_on_fees']),
+                "FBA Fees":       ("fba_fee_rules",  ['marketplace', 'size_band', 'weight_slab_max_kg', 'fee_inr']),
+                "General Config": ("config",         ['marketplace', 'default_zone', 'volumetric_divisor', 'gst_on_fees', 'tech_fee_inr']),
             }
             sql_table, sql_columns = sql_table_map[rule_choice]
 

@@ -29,9 +29,8 @@ pip-delete-this-directory.txt
 .env.*.local
 
 # Data (Never commit real business data!)
-data/db/*.db
-data/db/*.sqlite
-data/db/*.sqlite3
+# The whole folder: databases, journals and backups/ copies
+data/db/
 data/raw_reports/*
 *.xlsx
 *.csv

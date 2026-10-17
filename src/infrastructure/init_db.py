@@ -3,6 +3,7 @@
 Handles database creation, schema deployment, and data migration on application startup.
 """
 import os
+import re
 from sqlalchemy import text, event
 from sqlalchemy.exc import OperationalError
 from src.infrastructure.database import get_engine, DB_PATH
@@ -207,6 +208,293 @@ def _seed_supplier_master_from_products(engine):
     except Exception as e:
         logger.error(f"Supplier master seed migration failed: {e}", exc_info=True)
         raise
+
+
+
+def _apply_account_schema(engine):
+    """Create the seller-account and FBA fee tables (E12: multi-account P&L).
+
+    Idempotent — CREATE TABLE IF NOT EXISTS means repeated execution on a
+    database that already has them is a no-op. No data is read or written.
+
+    seller_accounts gives every listing an owning GSTIN so two legal entities
+    can share one catalog without their books mixing. fba_fee_rules mirrors
+    shipping_rules but for Amazon-fulfilled orders, where the fee is a flat
+    amount per weight band rather than a zone-based rate.
+    """
+    ddl_statements = [
+        (
+            """CREATE TABLE IF NOT EXISTS seller_accounts (
+                account_id     VARCHAR(50)  PRIMARY KEY,
+                display_name   VARCHAR(200) NOT NULL,
+                legal_name     VARCHAR(200),
+                gstin          VARCHAR(20),
+                is_active      INTEGER      NOT NULL DEFAULT 1
+                               CHECK (is_active IN (0, 1)),
+                created_at     DATETIME     DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "seller_accounts",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS fba_fee_rules (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                marketplace        VARCHAR(50)   NOT NULL,
+                size_band          VARCHAR(50)   NOT NULL DEFAULT 'standard',
+                weight_slab_max_kg DECIMAL(5,3)  NOT NULL,
+                fee_inr            DECIMAL(10,2) NOT NULL DEFAULT 0.0
+            )""",
+            "fba_fee_rules",
+        ),
+    ]
+    with engine.connect() as conn:
+        for ddl, table_name in ddl_statements:
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+                logger.debug(f"Table ensured: {table_name}")
+            except Exception as e:
+                logger.error(f"Failed to ensure table {table_name}: {e}", exc_info=True)
+                raise
+
+
+def _seed_account_defaults(engine):
+    """One-time seed of seller accounts, FBA fee bands and the technology fee.
+
+    Guarded by a schema_migrations row so it runs exactly once. Values are the
+    ones observed on real Amazon.in settlement statements in 2026:
+
+      - FBA weight handling: Rs 51 up to 0.5 kg, Rs 142 for the oversize band
+        that light bulky goods (containers, planters) fall into on volumetric
+        weight. Verified against order 405-9233507-8049137 (Rs 51 base) and
+        403-1120055-9792300 (Rs 142 base).
+      - Technology fee: Rs 14 flat per order, charged on every Amazon order
+        regardless of price or size. Introduced 2026, not present in the
+        original pricing_rules model.
+
+    Existing listings are assigned to account1 and fulfilment 'easy_ship',
+    which is what the catalog held before this migration.
+    """
+    migration_name = "seed_accounts_and_fba_rules_v1"
+    with engine.connect() as conn:
+        already_applied = conn.execute(
+            text("SELECT COUNT(*) FROM schema_migrations WHERE migration_name = :n"),
+            {"n": migration_name},
+        ).scalar()
+    if already_applied:
+        logger.debug(f"Migration already applied, skipping: {migration_name}")
+        return
+
+    logger.info("Seeding seller accounts, FBA fee bands and technology fee...")
+    try:
+        with engine.connect() as conn:
+            for acct_id, display, legal in [
+                ("account1", "Account 1", "Bludo Global LLP"),
+                ("account2", "Account 2", None),
+            ]:
+                conn.execute(
+                    text(
+                        "INSERT OR IGNORE INTO seller_accounts "
+                        "(account_id, display_name, legal_name) "
+                        "VALUES (:a, :d, :l)"
+                    ),
+                    {"a": acct_id, "d": display, "l": legal},
+                )
+
+            existing_fba = conn.execute(
+                text("SELECT COUNT(*) FROM fba_fee_rules")
+            ).scalar()
+            if not existing_fba:
+                for slab, fee in [(0.5, 51.0), (1.0, 76.0), (99.0, 142.0)]:
+                    conn.execute(
+                        text(
+                            "INSERT INTO fba_fee_rules "
+                            "(marketplace, size_band, weight_slab_max_kg, fee_inr) "
+                            "VALUES ('Amazon', 'standard', :s, :f)"
+                        ),
+                        {"s": slab, "f": fee},
+                    )
+
+            # Technology fee: Amazon only. Other marketplaces stay at zero.
+            conn.execute(
+                text("UPDATE config SET tech_fee_inr = 14.0 WHERE marketplace = 'Amazon'")
+            )
+
+            # Amazon charges a higher fixed closing fee on Fulfilled-by-Amazon
+            # orders than on self-shipped ones in the same price band. Observed:
+            #   Rs 6  on a Rs 289 FBA order  (403-1120055-9792300)
+            #   Rs 66 on a Rs 2,299 FBA order (408-2769666-9168346)
+            # against Rs 1 on a self-shipped Rs 299 order. Only the two bands
+            # that were actually observed are seeded; any FBA price band without
+            # a rule here falls back to the shared 'any' rules below it.
+            existing_fba_close = conn.execute(
+                text("SELECT COUNT(*) FROM pricing_rules WHERE fulfilment_type = 'fba'")
+            ).scalar()
+            if not existing_fba_close:
+                for cat in ("Apparel", "Accessories", "Footwear", "Home", "Other"):
+                    for lo, hi, fee in ((0.0, 500.0, 6.0), (1000.01, 99999.0, 66.0)):
+                        conn.execute(
+                            text(
+                                "INSERT INTO pricing_rules (marketplace, category_ref, "
+                                "min_price, max_price, referral_fee_pct, closing_fee_inr, "
+                                "fulfilment_type) VALUES ('Amazon', :c, :lo, :hi, 0.0, "
+                                ":fee, 'fba')"
+                            ),
+                            {"c": cat, "lo": lo, "hi": hi, "fee": fee},
+                        )
+
+            # Backfill: everything in the catalog today belongs to account1
+            # and was merchant-fulfilled, which is what the old model assumed.
+            conn.execute(
+                text(
+                    "UPDATE channel_listings SET account_id = 'account1' "
+                    "WHERE account_id IS NULL OR account_id = ''"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE channel_listings SET fulfilment_type = 'easy_ship' "
+                    "WHERE fulfilment_type IS NULL OR fulfilment_type = ''"
+                )
+            )
+
+            conn.execute(
+                text("INSERT OR IGNORE INTO schema_migrations (migration_name) VALUES (:n)"),
+                {"n": migration_name},
+            )
+            conn.commit()
+        logger.info("Seeded accounts, FBA bands and technology fee")
+    except Exception as e:
+        logger.error(f"Account seed migration failed: {e}", exc_info=True)
+        raise
+
+# Core tables and the key each one must have. A table loses its key when it is
+# rewritten with pandas to_sql(if_exists='replace'), which drops the table and
+# recreates it from the DataFrame alone (this happened via the Catalog editors).
+_KEYED_TABLES = {
+    "product_master": ["sku"],
+    "pack_master": ["pack_sku"],
+    "channel_listings": ["channel_sku", "marketplace"],
+    "inventory_master": ["sku"],
+    "supplier_master": ["supplier_code"],
+}
+
+
+def _canonical_create_sql(table_name):
+    """Return the CREATE TABLE statement for table_name from schema.sql."""
+    with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+        schema_sql = f.read()
+    match = re.search(
+        rf"CREATE TABLE (?:IF NOT EXISTS )?{table_name}\s*\(.*?\n\);",
+        schema_sql,
+        re.DOTALL,
+    )
+    if not match:
+        raise ConfigException(f"No CREATE TABLE for {table_name} in schema.sql")
+    return match.group(0).rstrip(";")
+
+
+def _repair_missing_primary_keys(engine):
+    """Rebuild any core table whose primary key has been lost.
+
+    Runs on every startup but only acts on a table with no primary key, so it
+    is a no-op on a healthy database. Without the key, upserts fail ("ON
+    CONFLICT clause does not match any PRIMARY KEY") and duplicate SKUs can be
+    stored.
+
+    The table is rebuilt from its schema.sql definition using SQLite's
+    documented procedure: create the new table, copy every row, drop the old
+    table, rename the new one. Columns the old table has that schema.sql does
+    not (added later by migrations) are carried over. All in one transaction.
+
+    If the key columns contain duplicates or blanks, the rebuild would fail, so
+    the table is left as it is and the offending keys are logged for the user
+    to fix in Catalog. Nothing is deleted or merged automatically.
+    """
+    with engine.connect() as conn:
+        existing = {
+            r[0] for r in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            )
+        }
+
+    for table_name, key_cols in _KEYED_TABLES.items():
+        if table_name not in existing:
+            continue
+        with engine.connect() as conn:
+            columns = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+        if any(col[5] for col in columns):  # col[5] = pk position, 0 if not in key
+            continue
+
+        logger.warning(f"Table {table_name} has lost its primary key — repairing...")
+        key_expr = ", ".join(key_cols)
+        blank_check = " OR ".join(f"{c} IS NULL OR TRIM({c}) = ''" for c in key_cols)
+        with engine.connect() as conn:
+            duplicates = conn.execute(text(
+                f"SELECT {key_expr}, COUNT(*) FROM {table_name} "
+                f"GROUP BY {key_expr} HAVING COUNT(*) > 1"
+            )).fetchall()
+            blanks = conn.execute(text(
+                f"SELECT COUNT(*) FROM {table_name} WHERE {blank_check}"
+            )).scalar()
+        if duplicates or blanks:
+            for row in duplicates:
+                logger.error(f"Cannot repair {table_name}: duplicate key {tuple(row[:-1])} ({row[-1]} rows)")
+            if blanks:
+                logger.error(f"Cannot repair {table_name}: {blanks} row(s) with a blank {key_expr}")
+            logger.error(
+                f"{table_name} left unrepaired. Remove the duplicate/blank rows in "
+                "Catalog and restart the app."
+            )
+            continue
+
+        new_table = f"{table_name}__rebuild"
+        create_sql = _canonical_create_sql(table_name).replace(
+            f"CREATE TABLE IF NOT EXISTS {table_name}", f"CREATE TABLE {new_table}", 1
+        ).replace(f"CREATE TABLE {table_name}", f"CREATE TABLE {new_table}", 1)
+
+        # PRAGMA foreign_keys is ignored inside a transaction, so this needs a
+        # DBAPI connection in autocommit mode with BEGIN/COMMIT issued by hand.
+        raw = engine.raw_connection()
+        dbapi_conn = raw.driver_connection
+        previous_isolation = dbapi_conn.isolation_level
+        dbapi_conn.isolation_level = None
+        cur = dbapi_conn.cursor()
+        try:
+            cur.execute("PRAGMA foreign_keys = OFF")
+            cur.execute("BEGIN")
+            cur.execute(f"DROP TABLE IF EXISTS {new_table}")
+            cur.execute(create_sql)
+            new_cols = {r[1] for r in cur.execute(f"PRAGMA table_info({new_table})")}
+            for col in columns:
+                name, col_type, default = col[1], col[2], col[4]
+                if name not in new_cols:
+                    ddl = f'ALTER TABLE {new_table} ADD COLUMN "{name}" {col_type or ""}'
+                    if default is not None:
+                        ddl += f" DEFAULT {default}"
+                    cur.execute(ddl)
+            col_list = ", ".join(f'"{col[1]}"' for col in columns)
+            cur.execute(
+                f"INSERT INTO {new_table} ({col_list}) SELECT {col_list} FROM {table_name}"
+            )
+            old_count = cur.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            new_count = cur.execute(f"SELECT COUNT(*) FROM {new_table}").fetchone()[0]
+            if old_count != new_count:
+                raise DatabaseException(
+                    f"Row count mismatch rebuilding {table_name}: {old_count} -> {new_count}"
+                )
+            cur.execute(f"DROP TABLE {table_name}")
+            cur.execute(f"ALTER TABLE {new_table} RENAME TO {table_name}")
+            cur.execute("COMMIT")
+            logger.info(f"Repaired {table_name}: primary key restored, {new_count} rows kept")
+        except Exception:
+            if dbapi_conn.in_transaction:
+                cur.execute("ROLLBACK")
+            logger.error(f"Repair of {table_name} failed — rolled back, no data changed", exc_info=True)
+            raise
+        finally:
+            cur.close()
+            dbapi_conn.isolation_level = previous_isolation
+            raw.close()
 
 
 def _enable_foreign_keys_if_clean(engine):
@@ -570,6 +858,26 @@ def _apply_column_migrations(engine):
     """
     migrations = [
         (
+            "ALTER TABLE channel_listings ADD COLUMN "
+            "account_id VARCHAR(50) DEFAULT 'account1'",
+            "channel_listings.account_id",
+        ),
+        (
+            "ALTER TABLE channel_listings ADD COLUMN "
+            "fulfilment_type VARCHAR(30) DEFAULT 'easy_ship'",
+            "channel_listings.fulfilment_type",
+        ),
+        (
+            "ALTER TABLE config ADD COLUMN "
+            "tech_fee_inr DECIMAL(10,2) DEFAULT 0.0",
+            "config.tech_fee_inr",
+        ),
+        (
+            "ALTER TABLE pricing_rules ADD COLUMN "
+            "fulfilment_type VARCHAR(30) DEFAULT 'any'",
+            "pricing_rules.fulfilment_type",
+        ),
+        (
             "ALTER TABLE stock_ledger ADD COLUMN "
             "reason_code VARCHAR(50) DEFAULT 'ADJUSTMENT'",
             "stock_ledger.reason_code",
@@ -631,6 +939,10 @@ def _check_and_migrate_existing_db():
         logger.debug("Checking existing database integrity...")
         engine = get_engine()
 
+        # 0. Restore any primary key lost to a table-replacing save. Must run
+        #    before anything that upserts (ON CONFLICT needs the key).
+        _repair_missing_primary_keys(engine)
+
         # 1. Ensure supplier_master and schema_migrations tables exist
         _apply_table_migrations(engine)
 
@@ -649,7 +961,13 @@ def _check_and_migrate_existing_db():
         # 6. One-time SKU case normalization (E11: canonical uppercase SKUs)
         _normalize_sku_case(engine)
 
-        # 7. Enable FK enforcement if all supplier_code references are clean
+        # 7. Multi-account + FBA schema (E12: actual-vs-planned P&L)
+        _apply_account_schema(engine)
+
+        # 8. One-time seed of accounts, FBA fee bands and technology fee
+        _seed_account_defaults(engine)
+
+        # 9. Enable FK enforcement if all supplier_code references are clean
         _enable_foreign_keys_if_clean(engine)
 
         with engine.connect() as conn:
@@ -685,28 +1003,18 @@ def _check_and_migrate_existing_db():
                 return False
 
     except Exception as e:
-        logger.warning(f"Error checking existing database: {str(e)}. Attempting migration...", exc_info=True)
-        try:
-            run_migration()
-            logger.info("✅ Database migration completed after error recovery.")
-            return True
-        except DataValidationException as migration_error:
-            err_msg = str(migration_error).lower()
-            if "no excel" in err_msg or "not found" in err_msg:
-                logger.warning(
-                    "⚠️ Recovery skipped: no Master Catalog Excel. "
-                    "Use the Onboarding Wizard to bootstrap your catalog."
-                )
-                return True
-            logger.error(f"Migration validation failed: {str(migration_error)}", exc_info=True)
-            return False
-        except Exception as migration_error:
-            logger.error(
-                f"Migration also failed with an unexpected error: {str(migration_error)}. "
-                "Database cannot be recovered automatically.",
-                exc_info=True
-            )
-            return False
+        # Do NOT attempt an automatic "recovery" here. run_migration() clears
+        # the catalog and inventory tables before reloading from Excel, so a
+        # transient error (locked file, disk hiccup) would have wiped live
+        # data. A damaged or unreadable database must be restored from backup
+        # by a person — see DEPLOY.md §2.
+        logger.critical(
+            f"Existing database could not be opened or upgraded: {str(e)}. "
+            "No changes were made. If the file is damaged, restore the latest "
+            "backup (DEPLOY.md, section 2).",
+            exc_info=True,
+        )
+        return False
 
 
 def _create_new_database():
@@ -756,13 +1064,20 @@ def _create_new_database():
         # 1. Ensure all tables exist (schema.sql covers them, but this is idempotent insurance)
         _apply_table_migrations(engine)
 
-        # 2. Seed SQL rules tables from Excel (E9: single config source)
+        # 2. Additive columns (account, fulfilment, tech fee) — same as an upgraded DB
+        _apply_column_migrations(engine)
+
+        # 3. Seed SQL rules tables from Excel (E9: single config source)
         _seed_rules_tables_from_excel(engine)
 
-        # 3. SKU case normalization (E11) — no-op on fresh DB; guard protects idempotency
+        # 4. SKU case normalization (E11) — no-op on fresh DB; guard protects idempotency
         _normalize_sku_case(engine)
 
-        # 4. Enable FK enforcement — fresh DB has no products, so orphan count is 0
+        # 5. Seller accounts, FBA fee bands and technology fee (E12)
+        _apply_account_schema(engine)
+        _seed_account_defaults(engine)
+
+        # 6. Enable FK enforcement — fresh DB has no products, so orphan count is 0
         _enable_foreign_keys_if_clean(engine)
 
         # Load initial data via migration (OPTIONAL — wizard can bootstrap instead)
