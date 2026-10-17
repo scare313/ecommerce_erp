@@ -104,9 +104,11 @@ def run_migration():
         excel_path = find_excel_file()
         
         if not excel_path:
-            error_msg = "No Excel (.xlsx) file found in data/raw_reports/"
-            logger.error(error_msg)
-            raise DataValidationException(error_msg)
+            # Normal on a new install: the Onboarding Wizard replaces this
+            # legacy Excel import, so this is not an error.
+            msg = "No Excel (.xlsx) file found in data/raw_reports/"
+            logger.info(f"{msg} — skipping legacy catalog import")
+            raise DataValidationException(msg)
 
         logger.info(f"Starting migration from: {excel_path}")
 
@@ -295,7 +297,8 @@ def run_migration():
         logger.error(f"Database migration failed: {str(e)}", exc_info=True)
         raise
     except DataValidationException as e:
-        logger.error(f"Data validation during migration failed: {str(e)}", exc_info=True)
+        if "no excel" not in str(e).lower():
+            logger.error(f"Data validation during migration failed: {str(e)}", exc_info=True)
         raise
     except Exception as e:
         logger.critical(f"Unexpected error during migration: {str(e)}", exc_info=True)

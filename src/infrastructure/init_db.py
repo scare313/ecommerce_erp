@@ -33,6 +33,10 @@ def init_database():
 
         logger.info(f"Starting database initialization. DB Path: {DB_PATH}")
 
+        # data/db/ is not in git, so a fresh install has no folder for the
+        # database file — SQLite cannot create the file without it.
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
         # Check if database file exists
         db_exists = os.path.exists(DB_PATH)
 

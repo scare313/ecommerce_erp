@@ -41,8 +41,22 @@ try:
     # Grouped button nav — persists active page across reruns via session state.
     # Buttons are grouped by workflow persona; the active page gets type="primary"
     # (green fill) for a clear visual indicator.
+    # Empty catalog (new install) -> open on the Onboarding Wizard, the only
+    # page that can do anything useful before data exists.
+    try:
+        from src.infrastructure.database import get_engine
+        from sqlalchemy import text
+        with get_engine().connect() as conn:
+            product_count = conn.execute(
+                text("SELECT COUNT(*) FROM product_master")
+            ).scalar() or 0
+    except Exception as e:
+        # Don't break navigation if the check fails
+        logger.debug(f"Empty-DB check skipped: {e}")
+        product_count = None
+
     if "nav_page" not in st.session_state:
-        st.session_state.nav_page = "Home"
+        st.session_state.nav_page = "Onboarding Wizard" if product_count == 0 else "Home"
     page = st.session_state.nav_page
 
     def _nav(label: str, name: str) -> None:
@@ -73,23 +87,13 @@ try:
     st.sidebar.caption("SETUP")
     _nav("🔧 Onboarding Wizard", "Onboarding Wizard")
 
-    # Empty-DB detection banner — guides new users to the wizard
-    try:
-        from src.infrastructure.database import get_engine
-        from sqlalchemy import text
-        with get_engine().connect() as conn:
-            product_count = conn.execute(
-                text("SELECT COUNT(*) FROM product_master")
-            ).scalar() or 0
-        if product_count == 0:
-            st.sidebar.warning(
-                "👋 **New here?**\n\n"
-                "Your catalog is empty. Start with the **Onboarding Wizard** "
-                "to import data from your marketplaces."
-            )
-    except Exception as e:
-        # Don't break navigation if DB check fails
-        logger.debug(f"Empty-DB check skipped: {e}")
+    # Empty-DB banner — guides new users to the wizard from any page
+    if product_count == 0:
+        st.sidebar.warning(
+            "👋 **New here?**\n\n"
+            "Your catalog is empty. Start with the **Onboarding Wizard** "
+            "to import data from your marketplaces."
+        )
 
     st.sidebar.divider()
     if st.sidebar.button("🔄 Refresh Data"):

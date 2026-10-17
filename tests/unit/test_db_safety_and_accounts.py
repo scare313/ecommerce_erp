@@ -140,6 +140,35 @@ class TestPrimaryKeyRepair:
 
 
 # ===========================================================================
+# Fresh install (no database, no data/db folder)
+# ===========================================================================
+
+@pytest.mark.unit
+class TestFreshInstall:
+
+    def test_startup_creates_folder_and_ready_database(self, tmp_path, monkeypatch):
+        db_path = tmp_path / "data" / "db" / "ecommerce.db"  # folder does not exist
+        monkeypatch.setattr(init_db, "DB_PATH", str(db_path))
+        monkeypatch.setattr(init_db, "get_engine", lambda: create_engine(f"sqlite:///{db_path}"))
+
+        def _no_legacy_excel():
+            raise DataValidationException("No Excel (.xlsx) file found in data/raw_reports/")
+        monkeypatch.setattr(init_db, "run_migration", _no_legacy_excel)
+
+        assert init_db.init_database() is True
+
+        engine = create_engine(f"sqlite:///{db_path}")
+        assert _pk_columns(engine, "product_master") == ["sku"]
+        with engine.connect() as conn:
+            accounts = [r[0] for r in conn.execute(text("SELECT account_id FROM seller_accounts"))]
+            products = conn.execute(text("SELECT COUNT(*) FROM product_master")).scalar()
+            listing_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(channel_listings)"))}
+        assert sorted(accounts) == ["account1", "account2"]
+        assert products == 0
+        assert {"account_id", "fulfilment_type"} <= listing_cols
+
+
+# ===========================================================================
 # Startup never wipes data on error
 # ===========================================================================
 
