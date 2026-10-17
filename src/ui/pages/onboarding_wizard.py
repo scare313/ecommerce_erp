@@ -405,7 +405,7 @@ def _render_step_2_preview():
             'mrp', 'gst_rate', 'weight_kg'
         ]].copy()
         display_df.columns = [
-            'Internal SKU', 'Product Name', 'Marketplaces', 'Listings',
+            'Master SKU', 'Product Name', 'Marketplaces', 'Listings',
             'MRP', 'GST %', 'Weight (kg)'
         ]
         st.dataframe(display_df, hide_index=True, width='stretch', height=400)
@@ -844,7 +844,7 @@ def _render_step_6_diff():
         )
         st.dataframe(
             pd.DataFrame(clashes).rename(columns={
-                'channel_sku': 'Channel SKU', 'marketplace': 'Marketplace',
+                'channel_sku': 'Listing SKU', 'marketplace': 'Marketplace',
                 'owned_by': 'Currently owned by',
             }),
             hide_index=True, width='stretch',
@@ -875,7 +875,7 @@ def _render_step_6_diff():
         pc_df['delta'] = pc_df['delta'].apply(
             lambda x: f"+₹{x:.2f}" if x >= 0 else f"-₹{abs(x):.2f}"
         )
-        pc_df.columns = ['Channel SKU', 'Marketplace', 'Internal SKU',
+        pc_df.columns = ['Listing SKU', 'Marketplace', 'Pack SKU',
                          'Old Price', 'New Price', 'Delta']
         st.dataframe(pc_df, hide_index=True, width='stretch', height=300)
 

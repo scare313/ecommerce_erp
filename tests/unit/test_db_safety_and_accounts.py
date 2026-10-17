@@ -241,7 +241,7 @@ class TestSaveTableEdits:
     def test_blank_key_is_refused(self, service, schema_engine):
         df = self._grid(schema_engine, "product_master")
         df.loc[len(df)] = {"sku": None, "name": "No SKU"}
-        with pytest.raises(DataValidationException, match="no sku"):
+        with pytest.raises(DataValidationException, match="no Master SKU"):
             service.save_table_edits("product_master", df)
 
     def test_duplicate_key_is_refused(self, service, schema_engine):
@@ -253,15 +253,130 @@ class TestSaveTableEdits:
     def test_removing_a_product_still_used_is_refused(self, service, schema_engine):
         df = self._grid(schema_engine, "product_master")
         df = df[df["sku"] != "CAP-BLACK"]
-        with pytest.raises(DataValidationException, match="still used"):
+        with pytest.raises(DataValidationException, match="CAP-BLACK.*does not exist"):
             service.save_table_edits("product_master", df)
         with schema_engine.connect() as conn:
             assert conn.execute(text("SELECT COUNT(*) FROM product_master")).scalar() == 2
+
+    def test_pack_pointing_to_missing_master_sku_is_refused(self, service, schema_engine):
+        df = self._grid(schema_engine, "pack_master")
+        df.loc[len(df)] = {"pack_sku": "CAP-NAVY-PK2", "master_sku": "CAP-NAVY", "quantity": 2}
+        with pytest.raises(DataValidationException, match="Master SKU CAP-NAVY .*does not exist"):
+            service.save_table_edits("pack_master", df)
+
+    def test_pack_with_zero_units_is_refused(self, service, schema_engine):
+        df = self._grid(schema_engine, "pack_master")
+        df.loc[df["pack_sku"] == "CAP-WHITE", "quantity"] = 0
+        with pytest.raises(DataValidationException, match="whole number of 1 or more"):
+            service.save_table_edits("pack_master", df)
+
+    def test_listing_pointing_to_missing_pack_is_refused(self, service, schema_engine):
+        df = self._grid(schema_engine, "channel_listings")
+        df.loc[0, "internal_sku"] = "NO-SUCH-PACK"
+        with pytest.raises(DataValidationException, match="Pack SKU NO-SUCH-PACK .*does not exist"):
+            service.save_table_edits("channel_listings", df)
+
+    def test_existing_broken_link_does_not_block_unrelated_edit(self, service, schema_engine):
+        with schema_engine.connect() as conn:
+            conn.exec_driver_sql("PRAGMA foreign_keys = OFF")  # how old data got broken
+            conn.execute(text(
+                "INSERT INTO channel_listings (channel_sku, marketplace, internal_sku) "
+                "VALUES ('OLD-ORPHAN', 'Flipkart', 'GONE-PACK')"
+            ))
+            conn.commit()
+        df = self._grid(schema_engine, "product_master")
+        df.loc[df["sku"] == "CAP-WHITE", "name"] = "White cap v2"
+
+        service.save_table_edits("product_master", df)  # must not raise
+
+        with schema_engine.connect() as conn:
+            problems = service.find_catalog_link_problems(conn)
+        assert any("GONE-PACK" in p for p in problems)  # still reported, for the page banner
 
     def test_emptying_the_table_is_refused(self, service, schema_engine):
         df = self._grid(schema_engine, "channel_listings").iloc[0:0]
         with pytest.raises(DataValidationException, match="Every row"):
             service.save_table_edits("channel_listings", df)
+
+
+# ===========================================================================
+# Add forms: product -> pack -> listing links
+# ===========================================================================
+
+@pytest.mark.unit
+class TestAddFormsCheckLinks:
+
+    @pytest.fixture
+    def service(self, schema_engine, monkeypatch):
+        monkeypatch.setattr("src.core.services.catalog_service.get_engine", lambda: schema_engine)
+        from src.core.services.catalog_service import CatalogService
+        return CatalogService()
+
+    def test_add_product_refuses_existing_master_sku(self, service, schema_engine):
+        with pytest.raises(DataValidationException, match="already exists"):
+            service.add_product({"sku": "cap-black", "name": "Overwrite?"})
+        with schema_engine.connect() as conn:
+            assert conn.execute(text(
+                "SELECT name FROM product_master WHERE sku='CAP-BLACK'"
+            )).scalar() == "Black cap"
+
+    def test_add_product_requires_master_sku(self, service):
+        with pytest.raises(DataValidationException, match="Master SKU is required"):
+            service.add_product({"sku": "  ", "name": "Nameless"})
+
+    def test_add_product_can_create_its_single_unit_pack(self, service, schema_engine):
+        service.add_product({"sku": "cap-navy", "name": "Navy cap"}, create_single_pack=True)
+        with schema_engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT master_sku, quantity FROM pack_master WHERE pack_sku='CAP-NAVY'"
+            )).fetchone()
+        assert tuple(row) == ("CAP-NAVY", 1)
+
+    def test_add_pack_refuses_missing_master_sku(self, service):
+        with pytest.raises(DataValidationException, match="Master SKU CAP-NAVY does not exist"):
+            service.add_pack({"pack_sku": "CAP-NAVY-PK2", "master_sku": "cap-navy", "quantity": 2})
+
+    def test_add_pack_refuses_existing_pack_sku(self, service):
+        with pytest.raises(DataValidationException, match="already exists"):
+            service.add_pack({"pack_sku": "CAP-BLACK", "master_sku": "CAP-BLACK", "quantity": 1})
+
+    def test_add_pack_refuses_zero_units(self, service):
+        with pytest.raises(DataValidationException, match="whole number"):
+            service.add_pack({"pack_sku": "CAP-BLACK-PK0", "master_sku": "CAP-BLACK", "quantity": 0})
+
+    def test_add_listing_refuses_missing_pack(self, service):
+        with pytest.raises(DataValidationException, match="Pack SKU NO-PACK does not exist"):
+            service.add_listing({"channel_sku": "X-1", "marketplace": "Meesho",
+                                 "internal_sku": "no-pack", "selling_price": 199})
+
+
+@pytest.mark.unit
+class TestBulkUploadChecksLinks:
+
+    def test_listing_to_missing_pack_imports_nothing(self, schema_engine, monkeypatch, tmp_path):
+        import io
+        monkeypatch.setattr("src.core.services.bulk_service.get_engine", lambda: schema_engine)
+        monkeypatch.setattr("src.core.services.catalog_service.get_engine", lambda: schema_engine)
+        from src.core.services.bulk_service import BulkService
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+            pd.DataFrame([{"sku": "CAP-BLACK", "name": "Black cap"},
+                          {"sku": "CAP-WHITE", "name": "White cap"}]).to_excel(
+                xw, sheet_name="Product_Master", index=False)
+            pd.DataFrame([{"channel_sku": "CAP-BLACK", "marketplace": "Amazon",
+                           "internal_sku": "CAP-BLACK"},
+                          {"channel_sku": "NEW-LISTING", "marketplace": "Amazon",
+                           "internal_sku": "MISSING-PACK"}]).to_excel(
+                xw, sheet_name="Channel_Listings", index=False)
+        buf.seek(0)
+
+        ok, msg = BulkService().upload_full_catalog(buf)
+
+        assert ok is False
+        assert "Nothing was imported" in msg and "MISSING-PACK" in msg
+        with schema_engine.connect() as conn:
+            assert conn.execute(text("SELECT COUNT(*) FROM channel_listings")).scalar() == 1
 
 
 # ===========================================================================

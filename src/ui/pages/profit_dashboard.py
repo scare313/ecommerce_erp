@@ -132,7 +132,7 @@ def render():
             'total_cogs', 'shipping_fee', 'fees_ex_gst', 'net_profit', 'margin_pct',
         ]
         labels = [
-            'SKU', 'Product Name', 'Price (incl GST)', 'Revenue (ex GST)',
+            'Listing SKU', 'Product Name', 'Price (incl GST)', 'Revenue (ex GST)',
             'COGS', 'of which Shipping', 'Fees (ex GST)', 'Net Profit', 'Margin %',
         ]
         cols = [c for c in cols if c in df.columns]
@@ -152,7 +152,7 @@ def render():
         st.dataframe(
             view_df.style.map(highlight_margin, subset=['Margin %']).format({
                 c: '₹{:.2f}' for c in view_df.columns
-                if c not in ('SKU', 'Product Name', 'Margin %')
+                if c not in ('Listing SKU', 'Product Name', 'Margin %')
             } | {'Margin %': '{:.1f}%'}),
             width='stretch',
             hide_index=True,

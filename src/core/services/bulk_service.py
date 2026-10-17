@@ -87,6 +87,57 @@ class BulkService:
             logger.error(f"Unexpected error during catalog export: {str(e)}", exc_info=True)
             raise
 
+    # SKU columns stored in canonical uppercase (E11)
+    _SKU_COLS = {
+        "product_master": ["sku"],
+        "pack_master": ["pack_sku", "master_sku"],
+        "channel_listings": ["channel_sku", "internal_sku"],
+    }
+
+    @classmethod
+    def _read_catalog_sheet(cls, xls, file_buffer, sheet_keyword, table_name):
+        """Read one catalog sheet with the same cleaning the import applies.
+
+        Returns None when the sheet is absent or empty.
+        """
+        target = next((s for s in xls.sheet_names if sheet_keyword.lower() in s.lower()), None)
+        if not target:
+            return None
+        df = pd.read_excel(file_buffer, sheet_name=target)
+        df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+        if df.empty:
+            return None
+        for col in cls._SKU_COLS.get(table_name, []):
+            if col in df.columns:
+                df[col] = df[col].where(df[col].isna(), df[col].astype(str).str.strip().str.upper())
+        return df
+
+    def _check_catalog_links(self, xls, file_buffer):
+        """Problems the catalog would have after this import; empty list if clean."""
+        from src.core.services.catalog_service import CatalogService
+
+        products = self._read_catalog_sheet(xls, file_buffer, "Product_Master", "product_master")
+        packs = self._read_catalog_sheet(xls, file_buffer, "Pack_Master", "pack_master")
+        listings = self._read_catalog_sheet(xls, file_buffer, "Channel_Listings", "channel_listings")
+
+        required = {
+            "Product_Master": (products, ["sku"]),
+            "Pack_Master": (packs, ["pack_sku", "master_sku"]),
+            "Channel_Listings": (listings, ["channel_sku", "marketplace", "internal_sku"]),
+        }
+        missing = [
+            f"Sheet {sheet} is missing column(s): {', '.join(c for c in cols if c not in df.columns)}"
+            for sheet, (df, cols) in required.items()
+            if df is not None and any(c not in df.columns for c in cols)
+        ]
+        if missing:
+            return missing
+
+        with self.engine.connect() as conn:
+            return CatalogService().find_catalog_link_problems(
+                conn, products=products, packs=packs, listings=listings
+            )
+
     def upload_full_catalog(self, file_buffer):
         """
         Reads a Multi-Tab Excel and updates tables in DEPENDENCY ORDER.
@@ -111,7 +162,17 @@ class BulkService:
             
             logger.debug(f"Available sheets: {sheet_names}")
             logs = []
-            
+
+            # Check product -> pack -> listing links across the whole file
+            # BEFORE writing anything. Sheets are replaced one at a time, so a
+            # broken link found halfway would otherwise leave a half-imported
+            # catalog. A missing sheet means "keep the current table".
+            problems = self._check_catalog_links(xls, file_buffer)
+            if problems:
+                msg = "Nothing was imported. Fix these in the file and upload again:\n- " + "\n- ".join(problems)
+                logger.warning(msg)
+                return False, msg
+
             # Helper to map sheet name to DB table
             def update_table(sheet_keyword, table_name):
                 try:
@@ -140,12 +201,7 @@ class BulkService:
                         return
                     
                     # Normalize SKU columns to canonical uppercase before insert (E11)
-                    _SKU_COLS = {
-                        "product_master": ["sku"],
-                        "pack_master": ["pack_sku", "master_sku"],
-                        "channel_listings": ["channel_sku", "internal_sku"],
-                    }
-                    for col in _SKU_COLS.get(table_name, []):
+                    for col in self._SKU_COLS.get(table_name, []):
                         if col in df.columns:
                             df[col] = df[col].astype(str).str.strip().str.upper()
 

@@ -158,7 +158,7 @@ def render():
 
                     # Rename for nicer display
                     rename_map = {
-                        'channel_sku': 'SKU',
+                        'channel_sku': 'Listing SKU',
                         'marketplace': 'Marketplace',
                         'net_profit': 'Net Profit',
                         'margin_pct': 'Margin %',

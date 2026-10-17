@@ -67,41 +67,173 @@ class CatalogService:
 
     def get_category_dropdown(self):
         """
-        Fetches unique categories from Excel Pricing Rules to ensure consistency.
-        
+        Categories that have fee rules, read from the SQL pricing_rules table —
+        the same table the profit calculation uses (E9: single source of truth).
+
         Returns:
             list: Available product categories
         """
+        fallback = ["Apparel", "Accessories", "Footwear", "Home", "Grocery",
+                    "Beauty", "Toys", "Electronics", "Other"]
         try:
-            logger.debug("Fetching category options from Excel pricing rules...")
-            from src.infrastructure.config_rules import load_excel_sheet
-            df = load_excel_sheet("Pricing_Rules")
-            if not df.empty and 'category_ref' in df.columns:
-                categories = sorted(df['category_ref'].dropna().unique().tolist())
-            else:
-                categories = ["Apparel", "Accessories", "Footwear", "Home", "Grocery", "Beauty", "Toys", "Electronics", "Other"]
-            logger.debug(f"Retrieved {len(categories)} categories from Excel rules")
-            return categories
+            with self.engine.connect() as conn:
+                categories = [
+                    r[0] for r in conn.execute(text(
+                        "SELECT DISTINCT category_ref FROM pricing_rules "
+                        "WHERE category_ref IS NOT NULL ORDER BY category_ref"
+                    ))
+                ]
+            return categories or fallback
         except Exception as e:
-            logger.error(f"Error fetching categories from Excel: {str(e)}", exc_info=True)
-            return ["Apparel", "Accessories", "Footwear", "Home", "Grocery", "Beauty", "Toys", "Electronics", "Other"]
+            logger.error(f"Error fetching categories from pricing rules: {str(e)}", exc_info=True)
+            return fallback
 
-    def add_product(self, data: dict):
+    def get_master_sku_list(self) -> list[str]:
+        """All Master SKUs (product_master.sku), sorted — for grid dropdowns."""
+        with self.engine.connect() as conn:
+            return [r[0] for r in conn.execute(text("SELECT sku FROM product_master ORDER BY sku"))]
+
+    # ------------------------------------------------------------------
+    # Catalog link integrity
+    #
+    #   Product (Master SKU) <- Pack (Pack SKU, n units of one Master SKU)
+    #                        <- Listing (Listing SKU on a marketplace, sells one Pack SKU)
+    #
+    # Every pack must point to an existing product and every listing to an
+    # existing pack, otherwise COGS, profit and stock cannot be worked out.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sample(values, limit=10) -> str:
+        values = sorted({str(v) for v in values})
+        shown = ", ".join(values[:limit])
+        return shown + (f" and {len(values) - limit} more" if len(values) > limit else "")
+
+    def find_catalog_link_problems(self, conn, products=None, packs=None, listings=None) -> list[str]:
+        """Check the catalog as it WOULD be if the given tables were replaced.
+
+        Any table not passed is read from the database, so this answers "is
+        it safe to save this edit / import this file?" before writing.
+
+        Args:
+            conn: open connection
+            products: DataFrame with a 'sku' column, or None for the DB table
+            packs: DataFrame with 'pack_sku', 'master_sku' (and optionally
+                   'quantity'), or None for the DB table
+            listings: DataFrame with 'channel_sku', 'marketplace', 'internal_sku'
+                      (and optionally account_id / fulfilment_type), or None
+
+        Returns:
+            list[str]: one plain-English message per problem; empty if clean
+        """
+        def _blank(series):
+            return series.isna() | (series.astype(str).str.strip() == "")
+
+        if products is None:
+            products = pd.read_sql(text("SELECT sku FROM product_master"), conn)
+        if packs is None:
+            packs = pd.read_sql(text("SELECT pack_sku, master_sku, quantity FROM pack_master"), conn)
+        if listings is None:
+            listings = pd.read_sql(text(
+                "SELECT channel_sku, marketplace, internal_sku FROM channel_listings"
+            ), conn)
+
+        master_skus = set(products["sku"].dropna())
+        pack_skus = set(packs["pack_sku"].dropna())
+        problems = []
+
+        # Packs -> products
+        no_master = packs[_blank(packs["master_sku"])]
+        if not no_master.empty:
+            problems.append(
+                f"Pack SKU {self._sample(no_master['pack_sku'])} has no Master SKU. "
+                "Every pack must belong to a product."
+            )
+        bad_master = packs[~_blank(packs["master_sku"]) & ~packs["master_sku"].isin(master_skus)]
+        if not bad_master.empty:
+            problems.append(
+                f"Master SKU {self._sample(bad_master['master_sku'])} (used by Pack SKU "
+                f"{self._sample(bad_master['pack_sku'])}) does not exist. Add the product "
+                "in the Products tab first, or pick an existing Master SKU."
+            )
+        if "quantity" in packs.columns:
+            qty = pd.to_numeric(packs["quantity"], errors="coerce")
+            bad_qty = packs[qty.isna() | (qty < 1) | (qty != qty.round())]
+            if not bad_qty.empty:
+                problems.append(
+                    f"Pack SKU {self._sample(bad_qty['pack_sku'])}: units in pack must be a "
+                    "whole number of 1 or more."
+                )
+
+        # Listings -> packs
+        listing_label = listings["channel_sku"].astype(str) + " (" + listings["marketplace"].astype(str) + ")"
+        no_pack = listings[_blank(listings["internal_sku"])]
+        if not no_pack.empty:
+            problems.append(
+                f"Listing SKU {self._sample(listing_label[no_pack.index])} has no Pack SKU. "
+                "Every listing must sell a pack."
+            )
+        bad_pack = listings[~_blank(listings["internal_sku"]) & ~listings["internal_sku"].isin(pack_skus)]
+        if not bad_pack.empty:
+            problems.append(
+                f"Pack SKU {self._sample(bad_pack['internal_sku'])} (used by Listing SKU "
+                f"{self._sample(listing_label[bad_pack.index])}) does not exist. Create the "
+                "pack in the Packs tab first, or pick an existing Pack SKU."
+            )
+
+        # Listing fields that must match configured values
+        known_markets = {r[0] for r in conn.execute(text("SELECT marketplace FROM config"))}
+        if known_markets:
+            bad_mkt = listings[~listings["marketplace"].isin(known_markets)]
+            if not bad_mkt.empty:
+                problems.append(
+                    f"Marketplace {self._sample(bad_mkt['marketplace'])} is not set up "
+                    f"(known: {', '.join(sorted(known_markets))})."
+                )
+        if "account_id" in listings.columns:
+            known_accounts = {r[0] for r in conn.execute(text("SELECT account_id FROM seller_accounts"))}
+            bad_acct = listings[listings["account_id"].notna() & ~listings["account_id"].isin(known_accounts)]
+            if known_accounts and not bad_acct.empty:
+                problems.append(f"Seller account {self._sample(bad_acct['account_id'])} does not exist.")
+        if "fulfilment_type" in listings.columns:
+            bad_ful = listings[listings["fulfilment_type"].notna()
+                               & ~listings["fulfilment_type"].isin(["easy_ship", "fba"])]
+            if not bad_ful.empty:
+                problems.append(
+                    f"Fulfilment {self._sample(bad_ful['fulfilment_type'])} is not valid "
+                    "(use easy_ship or fba)."
+                )
+
+        # Stock rows must keep their product
+        stock = {r[0] for r in conn.execute(text("SELECT sku FROM inventory_master"))}
+        orphan_stock = stock - master_skus
+        if orphan_stock:
+            problems.append(
+                f"Master SKU {self._sample(orphan_stock)} still has stock records, so it "
+                "cannot be removed or renamed."
+            )
+        return problems
+
+    def add_product(self, data: dict, create_single_pack: bool = False):
         """
         Add a new product to the product master.
         Automatically calculates total unit COGS.
-        
+
         Args:
             data: Dictionary containing product fields
-            
+            create_single_pack: also create a 1-unit pack whose Pack SKU equals
+                the Master SKU, so the product can be listed straight away
+                (the same shape the Onboarding Wizard creates)
+
         Raises:
-            DataValidationException: If required fields are missing
+            DataValidationException: If the Master SKU is blank or already exists
             DatabaseException: If database insert fails
         """
         try:
             # Canonical SKU — uppercase, stripped of whitespace
-            if data.get('sku'):
-                data['sku'] = str(data['sku']).strip().upper()
+            data['sku'] = str(data.get('sku') or '').strip().upper()
+            if not data['sku']:
+                raise DataValidationException("Master SKU is required.")
 
             logger.info(f"Adding product: {data.get('sku', 'UNKNOWN')}")
 
@@ -138,9 +270,19 @@ class CatalogService:
             spc = str(data.get('supplier_product_code') or '').strip()
             data['supplier_product_code'] = spc if spc else None
 
-            self._insert('product_master', data)
+            with self.engine.begin() as conn:
+                if self._exists(conn, 'product_master', 'sku', data['sku']):
+                    raise DataValidationException(
+                        f"Master SKU {data['sku']} already exists. Edit it in the table below."
+                    )
+                self._insert_new(conn, 'product_master', data)
+                if create_single_pack and not self._exists(conn, 'pack_master', 'pack_sku', data['sku']):
+                    self._insert_new(conn, 'pack_master', {
+                        'pack_sku': data['sku'], 'master_sku': data['sku'],
+                        'quantity': 1, 'packaging_cogs': 0,
+                    })
             logger.info(f"✅ Product created: {data.get('sku')}")
-            
+
         except DataValidationException:
             raise
         except DatabaseException:
@@ -162,13 +304,28 @@ class CatalogService:
         """
         try:
             # Canonical SKUs — uppercase, stripped
-            if data.get('pack_sku'):
-                data['pack_sku'] = str(data['pack_sku']).strip().upper()
-            if data.get('master_sku'):
-                data['master_sku'] = str(data['master_sku']).strip().upper()
+            data['pack_sku'] = str(data.get('pack_sku') or '').strip().upper()
+            data['master_sku'] = str(data.get('master_sku') or '').strip().upper()
+            if not data['pack_sku']:
+                raise DataValidationException("Pack SKU is required.")
+            if not data['master_sku']:
+                raise DataValidationException("Choose the Master SKU (product) this pack contains.")
+            quantity = data.get('quantity', 1)
+            if quantity is None or int(quantity) != quantity or quantity < 1:
+                raise DataValidationException("Units in pack must be a whole number of 1 or more.")
 
             logger.info(f"Adding pack: {data.get('pack_sku', 'UNKNOWN')}")
-            self._insert('pack_master', data)
+            with self.engine.begin() as conn:
+                if not self._exists(conn, 'product_master', 'sku', data['master_sku']):
+                    raise DataValidationException(
+                        f"Master SKU {data['master_sku']} does not exist. Add the product "
+                        "in the Products tab first."
+                    )
+                if self._exists(conn, 'pack_master', 'pack_sku', data['pack_sku']):
+                    raise DataValidationException(
+                        f"Pack SKU {data['pack_sku']} already exists. Edit it in the table below."
+                    )
+                self._insert_new(conn, 'pack_master', data)
             logger.info(f"✅ Pack created: {data.get('pack_sku')}")
         except (DataValidationException, DatabaseException):
             raise
@@ -199,9 +356,15 @@ class CatalogService:
 
             # Validate required fields
             if not data.get('channel_sku') or not data.get('marketplace'):
-                error_msg = "channel_sku and marketplace are required"
-                logger.error(f"Validation error: {error_msg}")
-                raise DataValidationException(error_msg)
+                raise DataValidationException("Listing SKU and marketplace are required.")
+            if not data.get('internal_sku'):
+                raise DataValidationException("Choose the Pack SKU this listing sells.")
+            with self.engine.connect() as conn:
+                if not self._exists(conn, 'pack_master', 'pack_sku', data['internal_sku']):
+                    raise DataValidationException(
+                        f"Pack SKU {data['internal_sku']} does not exist. Create the pack "
+                        "in the Packs tab first."
+                    )
             
             # Warn if no price
             if not data.get('selling_price') or data.get('selling_price') <= 0:
@@ -285,21 +448,13 @@ class CatalogService:
     # Tables editable as a grid in Catalog: key columns, SKU columns to
     # normalise, and the (table, column) pairs that reference this table's key.
     _GRID_TABLES = {
-        "product_master": {
-            "key": ["sku"],
-            "sku_cols": ["sku"],
-            "referenced_by": [("pack_master", "master_sku"), ("inventory_master", "sku")],
-        },
-        "pack_master": {
-            "key": ["pack_sku"],
-            "sku_cols": ["pack_sku", "master_sku"],
-            "referenced_by": [("channel_listings", "internal_sku")],
-        },
-        "channel_listings": {
-            "key": ["channel_sku", "marketplace"],
-            "sku_cols": ["channel_sku", "internal_sku"],
-            "referenced_by": [],
-        },
+        "product_master": {"key": ["sku"], "sku_cols": ["sku"],
+                           "check_as": "products", "key_label": "Master SKU"},
+        "pack_master": {"key": ["pack_sku"], "sku_cols": ["pack_sku", "master_sku"],
+                        "check_as": "packs", "key_label": "Pack SKU"},
+        "channel_listings": {"key": ["channel_sku", "marketplace"],
+                             "sku_cols": ["channel_sku", "internal_sku"],
+                             "check_as": "listings", "key_label": "Listing SKU / Marketplace"},
     }
 
     def save_table_edits(self, table: str, df: pd.DataFrame) -> int:
@@ -313,8 +468,9 @@ class CatalogService:
         Refuses to save, changing nothing, if:
           - a row has a blank key, or two rows share a key
           - every row was removed
-          - a removed or renamed key is still used by another table
-            (e.g. a product that packs or stock still point to)
+          - the edit would break a link between products, packs and listings
+            (see find_catalog_link_problems). Problems that already existed
+            before the edit do not block it — they are shown on the page.
 
         Args:
             table: one of product_master, pack_master, channel_listings
@@ -344,14 +500,14 @@ class CatalogService:
             blank_key |= df[col].isna() | (df[col].astype(str).str.strip() == "")
         if blank_key.any():
             raise DataValidationException(
-                f"{int(blank_key.sum())} row(s) have no {' / '.join(keys)}. "
+                f"{int(blank_key.sum())} row(s) have no {spec['key_label']}. "
                 "Fill it in or delete the row, then save again."
             )
         dupes = df[df.duplicated(subset=keys, keep=False)]
         if not dupes.empty:
             shown = sorted({" / ".join(str(v) for v in r) for r in dupes[keys].values})[:10]
             raise DataValidationException(
-                f"Duplicate {' / '.join(keys)}: {', '.join(shown)}. Each must be unique."
+                f"Duplicate {spec['key_label']}: {', '.join(shown)}. Each must be unique."
             )
         if df.empty:
             raise DataValidationException(
@@ -362,22 +518,11 @@ class CatalogService:
         try:
             with self.engine.begin() as conn:
                 table_cols = [r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))]
-                old_keys = pd.read_sql(text(f"SELECT {', '.join(keys)} FROM {table}"), conn)
-
-                removed = set(map(tuple, old_keys[keys].values)) - set(map(tuple, df[keys].values))
-                if removed and spec["referenced_by"]:
-                    removed_ids = {k[0] for k in removed}  # referenced tables have single-column keys
-                    for dep_table, dep_col in spec["referenced_by"]:
-                        used = {
-                            r[0] for r in conn.execute(
-                                text(f"SELECT DISTINCT {dep_col} FROM {dep_table}")
-                            )
-                        } & removed_ids
-                        if used:
-                            raise DataValidationException(
-                                f"Cannot remove or rename {', '.join(sorted(used)[:10])}: "
-                                f"still used in {dep_table}. Change those rows first."
-                            )
+                before = set(self.find_catalog_link_problems(conn))
+                after = self.find_catalog_link_problems(conn, **{spec["check_as"]: df})
+                new_problems = [p for p in after if p not in before]
+                if new_problems:
+                    raise DataValidationException(" ".join(new_problems))
 
                 save_df = df[[c for c in df.columns if c in table_cols]]
                 # Rows are deleted and re-inserted, so foreign-key checks (when
@@ -393,6 +538,19 @@ class CatalogService:
         except Exception as e:
             logger.error(f"Error saving edits to {table}: {str(e)}", exc_info=True)
             raise DatabaseException(f"Failed to save {table}: {str(e)}") from e
+
+    @staticmethod
+    def _exists(conn, table, column, value) -> bool:
+        return conn.execute(
+            text(f"SELECT 1 FROM {table} WHERE {column} = :v LIMIT 1"), {"v": value}
+        ).first() is not None
+
+    @staticmethod
+    def _insert_new(conn, table, data):
+        """Plain INSERT (never replaces an existing row) inside the caller's transaction."""
+        cols = ", ".join(data.keys())
+        params = ", ".join(f":{k}" for k in data.keys())
+        conn.execute(text(f"INSERT INTO {table} ({cols}) VALUES ({params})"), data)
 
     def _insert(self, table, data):
         """

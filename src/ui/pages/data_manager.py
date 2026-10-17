@@ -19,11 +19,10 @@ from src.ui.components.errors import show_error
 from src.ui.cache_adapter import clear_catalog_cache, clear_all_caches
 from src.ui.cache_adapter import get_marketplaces, get_seller_accounts
 from src.core.data_access import set_rules_last_verified, get_rules_last_verified
+from src.ui.components import catalog_columns as cols
+from src.ui.components.catalog_columns import FULFILMENT_OPTIONS
 
 logger = get_logger(__name__)
-
-# Label shown to the user -> value stored in channel_listings.fulfilment_type
-FULFILMENT_OPTIONS = {"Self-ship / Easy Ship": "easy_ship", "FBA (Amazon ships)": "fba"}
 
 
 def render():
@@ -40,6 +39,21 @@ def render():
         except Exception as e:
             show_error(logger, "Failed to initialize services", e)
             return
+
+        st.caption(
+            "**Product** (Master SKU) → **Pack** (Pack SKU: a number of units of one "
+            "product) → **Listing** (Listing SKU on a marketplace, sells one pack)."
+        )
+        try:
+            with engine.connect() as conn:
+                link_problems = service.find_catalog_link_problems(conn)
+            if link_problems:
+                st.warning(
+                    "⚠️ **Fix these catalog links** — profit and stock for these SKUs "
+                    "cannot be worked out until they are fixed:\n\n- " + "\n- ".join(link_problems)
+                )
+        except Exception as e:
+            logger.warning(f"Catalog link check skipped: {e}")
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["1. Products", "2. Packs", "3. Listings", "⚙️ Config & Rules", "📥 Bulk Operations"])
 
@@ -63,7 +77,7 @@ def render():
 
                 with st.form("new_product_form"):
                     c1, c2, c3 = st.columns(3)
-                    sku = c1.text_input("Master SKU (Unique)", placeholder="TSHIRT-BLK-L")
+                    sku = c1.text_input("Master SKU (unique)", placeholder="CAP-RAIN-BLACK")
                     name = c2.text_input("Product Name")
 
                     try:
@@ -106,6 +120,13 @@ def render():
                         )
                         selected_supplier_code = None
 
+                    create_pack = st.checkbox(
+                        "Also create a single-unit pack with the same SKU",
+                        value=True, key="product_create_pack",
+                        help="Needed before the product can be listed. Add multi-packs "
+                             "(e.g. 2-pack) in the Packs tab.",
+                    )
+
                     supplier_product_code = st.text_input(
                         "Supplier Product Code",
                         placeholder="e.g. RTS-2024-BLK-L",
@@ -124,18 +145,24 @@ def render():
                                 "lifecycle_status": status,
                                 "supplier_code": selected_supplier_code,
                                 "supplier_product_code": supplier_product_code,
-                            })
+                            }, create_single_pack=create_pack)
                             clear_catalog_cache()
                             logger.info(f"Product created successfully: {sku}")
                             st.success(f"Created {sku}")
                             st.rerun()
+                        except DataValidationException as e:
+                            st.error(f"❌ {e}")
                         except Exception as e:
                             show_error(logger, f"Error creating product {sku}", e)
 
             # View/Edit Grid
             try:
-                df_prod = pd.read_sql("SELECT * FROM product_master", engine)
-                edited_prod = st.data_editor(df_prod, key="editor_prod", num_rows="dynamic")
+                df_prod = pd.read_sql("SELECT * FROM product_master ORDER BY sku", engine)
+                edited_prod = st.data_editor(
+                    df_prod, key="editor_prod", num_rows="dynamic", hide_index=True,
+                    column_config=cols.product_columns(service.get_category_dropdown()),
+                    column_order=cols.ordered(df_prod, cols.PRODUCT_ORDER),
+                )
                 if st.button("Save Product Changes"):
                     try:
                         saved = service.save_table_edits('product_master', edited_prod)
@@ -152,30 +179,31 @@ def render():
         with tab2:
             st.subheader("Create Sellable Packs")
             with st.expander("➕ Add New Pack", expanded=False):
+                try:
+                    product_options = service.get_product_dropdown()
+                except Exception as e:
+                    logger.error(f"Error fetching products for pack: {str(e)}", exc_info=True)
+                    product_options = []
+                if not product_options:
+                    st.info("Add a product in the **Products** tab first — every pack contains one product.")
                 with st.form("new_pack_form"):
-                    try:
-                        product_options = service.get_product_dropdown()
-                        selected_prod = st.selectbox("Select Base Product", product_options)
-                    except Exception as e:
-                        logger.error(f"Error fetching products for pack: {str(e)}", exc_info=True)
-                        st.error("Unable to load products")
-                        selected_prod = None
-                    
+                    selected_prod = st.selectbox(
+                        "Master SKU (the product inside)", product_options or ["— no products yet —"],
+                        disabled=not product_options,
+                    )
+
                     c1, c2 = st.columns(2)
-                    pack_sku = c1.text_input("Pack SKU (Unique)", placeholder="TSHIRT-BLK-L-PK2")
-                    qty = c2.number_input("Quantity in Pack", min_value=1, value=1)
-                    
+                    pack_sku = c1.text_input("Pack SKU (unique)", placeholder="CAP-RAIN-BLACK-PK2")
+                    qty = c2.number_input("Units in pack", min_value=1, value=1, step=1)
+
                     c3, c4 = st.columns(2)
-                    pack_cost = c3.number_input("Extra Packaging Cost", min_value=0.0)
-                    weight = c4.number_input("Final Weight (Kg)", min_value=0.0, format="%.3f")
-                    
-                    if st.form_submit_button("Create Pack"):
+                    pack_cost = c3.number_input("Packaging cost per pack (₹)", min_value=0.0)
+                    weight = c4.number_input("Weight (kg)", min_value=0.0, format="%.3f")
+
+                    if st.form_submit_button("Create Pack", disabled=not product_options):
                         try:
-                            if " | " in selected_prod:
-                                master_sku_clean = selected_prod.split(" | ")[0]
-                            else:
-                                master_sku_clean = selected_prod
-                            
+                            master_sku_clean = selected_prod.split(" | ")[0]
+
                             service.add_pack({
                                 "pack_sku": pack_sku, "master_sku": master_sku_clean,
                                 "quantity": qty, "packaging_cogs": pack_cost,
@@ -185,13 +213,19 @@ def render():
                             logger.info(f"Pack created successfully: {pack_sku}")
                             st.success(f"Created Pack {pack_sku}")
                             st.rerun()
+                        except DataValidationException as e:
+                            st.error(f"❌ {e}")
                         except Exception as e:
                             show_error(logger, f"Error creating pack {pack_sku}", e)
 
             # View/Edit Grid
             try:
-                df_pack = pd.read_sql("SELECT * FROM pack_master", engine)
-                edited_pack = st.data_editor(df_pack, key="editor_pack", num_rows="dynamic")
+                df_pack = pd.read_sql("SELECT * FROM pack_master ORDER BY pack_sku", engine)
+                edited_pack = st.data_editor(
+                    df_pack, key="editor_pack", num_rows="dynamic", hide_index=True,
+                    column_config=cols.pack_columns(service.get_master_sku_list()),
+                    column_order=cols.ordered(df_pack, cols.PACK_ORDER),
+                )
                 if st.button("Save Pack Changes"):
                     try:
                         saved = service.save_table_edits('pack_master', edited_pack)
@@ -207,23 +241,27 @@ def render():
         # --- TAB 3: CHANNEL LISTINGS ---
         with tab3:
             st.subheader("Map Listings to Packs")
-            st.info("💡 **Remember**: Set 'selling_price' for each listing to enable profit calculations!")
-            
+            st.info("💡 **Remember**: set the price for each listing to enable profit calculations!")
+
             with st.expander("➕ Add Listing", expanded=False):
+                try:
+                    pack_options = service.get_pack_dropdown()
+                except Exception as e:
+                    logger.error(f"Error fetching packs for listing: {str(e)}", exc_info=True)
+                    pack_options = []
+                if not pack_options:
+                    st.info("Create a pack in the **Packs** tab first — every listing sells one pack.")
                 with st.form("new_listing_form"):
-                    try:
-                        pack_options = service.get_pack_dropdown()
-                        selected_pack = st.selectbox("Select Internal Pack", pack_options)
-                    except Exception as e:
-                        logger.error(f"Error fetching packs for listing: {str(e)}", exc_info=True)
-                        st.error("Unable to load packs")
-                        selected_pack = None
-                    
+                    selected_pack = st.selectbox(
+                        "Pack SKU (what this listing sells)", pack_options or ["— no packs yet —"],
+                        disabled=not pack_options,
+                    )
+
                     c1, c2, c3 = st.columns(3)
-                    marketplace = st.selectbox("Marketplace", get_marketplaces(), key="listing_mkt")
-                    channel_sku = c2.text_input("Channel SKU / ASIN")
-                    status = c3.selectbox("Status", ["LIVE", "INACTIVE", "SUPPRESSED"])
-                    
+                    marketplace = c1.selectbox("Marketplace", get_marketplaces(), key="listing_mkt")
+                    channel_sku = c2.text_input("Listing SKU (as on the marketplace)")
+                    status = c3.selectbox("Status", cols.LISTING_STATUSES)
+
                     selling_price = st.number_input("Selling Price (₹)", min_value=0.0, value=0.0, help="CRITICAL: Must be > 0 for profit calculation")
 
                     accounts = get_seller_accounts()
@@ -237,7 +275,7 @@ def render():
                              "Self-ship covers Easy Ship and Flipkart/Meesho shipping.",
                     )
 
-                    if st.form_submit_button("Link Listing"):
+                    if st.form_submit_button("Link Listing", disabled=not pack_options):
                         try:
                             if selling_price <= 0:
                                 st.warning("⚠️ Warning: Selling price is 0. This SKU will show 0% margin until price is set.")
@@ -263,7 +301,9 @@ def render():
 
             # View/Edit Grid
             try:
-                df_list = pd.read_sql("SELECT * FROM channel_listings", engine)
+                df_list = pd.read_sql(
+                    "SELECT * FROM channel_listings ORDER BY marketplace, channel_sku", engine
+                )
                 
                 def highlight_missing_price(row):
                     if row['selling_price'] <= 0:
@@ -271,17 +311,13 @@ def render():
                     return [''] * len(row)
                 
                 edited_list = st.data_editor(
-                    df_list, key="editor_list", num_rows="dynamic",
-                    column_config={
-                        "account_id": st.column_config.SelectboxColumn(
-                            "account_id", options=[a[0] for a in get_seller_accounts()],
-                            required=True,
-                        ),
-                        "fulfilment_type": st.column_config.SelectboxColumn(
-                            "fulfilment_type", options=list(FULFILMENT_OPTIONS.values()),
-                            required=True,
-                        ),
-                    },
+                    df_list, key="editor_list", num_rows="dynamic", hide_index=True,
+                    column_config=cols.listing_columns(
+                        service.get_pack_dropdown(),
+                        get_marketplaces(),
+                        [a[0] for a in get_seller_accounts()],
+                    ),
+                    column_order=cols.ordered(df_list, cols.LISTING_ORDER),
                 )
                 if st.button("Save Listing Changes"):
                     try:

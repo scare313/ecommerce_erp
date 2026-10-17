@@ -118,7 +118,7 @@ def render():
                             plan_df[['base_sku', 'supplier_name', 'category',
                                      'lead_time_days', 'stock_qty', 'to_purchase']]
                             .rename(columns={
-                                'base_sku':       'SKU',
+                                'base_sku':       'Master SKU',
                                 'supplier_name':  'Supplier',
                                 'category':       'Category',
                                 'lead_time_days': 'Lead Time (days)',
