@@ -189,6 +189,30 @@ class TestDetect:
     def test_unknown_file(self):
         assert detect_platform(b"sku,qty\nA,1\n", "stock.csv") is None
 
+    def test_flipkart_detected_without_ads_or_tcs_sheets(self):
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        _two_row_header_sheet(wb, "Orders", "Payment Details", FK_ORDER_COLS,
+                              [_fk_order("OD1", "X", 1, sale=100.0)])
+        buf = io.BytesIO()
+        wb.save(buf)
+        assert detect_platform(buf.getvalue(), "x.xlsx") == "flipkart"
+
+    def test_catalog_file_gets_a_helpful_message(self):
+        from src.infrastructure.settlement_parsers import parse_settlement_file
+        wb = openpyxl.Workbook()
+        wb.active.title = "Product_Master"
+        wb.create_sheet("Pack_Master")
+        buf = io.BytesIO()
+        wb.save(buf)
+        with pytest.raises(DataValidationException, match="catalog file.*Bulk Operations"):
+            parse_settlement_file(buf.getvalue(), "Master_Catalog.xlsx")
+
+    def test_amazon_orders_report_gets_a_helpful_message(self):
+        from src.infrastructure.settlement_parsers import parse_settlement_file
+        with pytest.raises(DataValidationException, match="orders report"):
+            parse_settlement_file(b"amazon-order-id\tsku\nA-1\tX\n", "orders.txt")
+
 
 @pytest.mark.unit
 class TestAmazonReader:

@@ -139,21 +139,77 @@ def _read_two_row_header(buf, sheet):
 # Detection
 # ---------------------------------------------------------------------------
 
+def _text_head(data: bytes) -> str:
+    """First part of a text file, whatever its encoding (UTF-8 or UTF-16)."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data[:12000].decode("utf-16", errors="ignore").lower()
+    return data[:12000].decode("utf-8-sig", errors="ignore").lower()
+
+
+def _sheet_names(data: bytes) -> list[str] | None:
+    try:
+        return pd.ExcelFile(io.BytesIO(data)).sheet_names
+    except Exception as e:
+        logger.warning(f"Could not open uploaded file as Excel: {e}")
+        return None
+
+
 def detect_platform(data: bytes, filename: str = "") -> str | None:
     """Return 'amazon', 'flipkart', 'meesho' or None, from the file's content."""
-    head = data[:6000].decode("utf-8-sig", errors="ignore").lower()
-    if "date/time" in head and "settlement id" in head:
-        return "amazon"
-    if data[:2] == b"PK":  # xlsx is a zip
-        try:
-            sheets = set(pd.ExcelFile(io.BytesIO(data)).sheet_names)
-        except Exception:
+    if data[:2] == b"PK" or data[:4] == b"\xd0\xcf\x11\xe0":  # xlsx / xls
+        sheets = _sheet_names(data)
+        if not sheets:
             return None
         if "Order Payments" in sheets:
             return "meesho"
-        if "Orders" in sheets and ("TCS_Recovery" in sheets or "Ads" in sheets):
-            return "flipkart"
+        if "Orders" in sheets:
+            # The Settled Transactions file; its Orders sheet carries the
+            # bank settlement column. Other sheets vary between versions.
+            try:
+                head = pd.read_excel(io.BytesIO(data), sheet_name="Orders", header=None, nrows=3)
+                if head.astype(str).apply(lambda c: c.str.contains("Bank Settlement", case=False)).any().any():
+                    return "flipkart"
+            except Exception as e:
+                logger.warning(f"Could not read Orders sheet: {e}")
+        return None
+    head = _text_head(data)
+    if "date/time" in head and "settlement id" in head:
+        return "amazon"
     return None
+
+
+def describe_unrecognised(data: bytes, filename: str = "") -> str:
+    """Plain-English reason a file is not a settlement report, and where it belongs."""
+    name = filename or "This file"
+    if data[:2] == b"PK" or data[:4] == b"\xd0\xcf\x11\xe0":
+        sheets = _sheet_names(data)
+        if sheets is None:
+            return f"{name} could not be opened as an Excel file. Re-download it and try again."
+        s = set(sheets)
+        if {"Product_Master", "Pack_Master"} & s:
+            return f"{name} is a catalog file — upload it in Catalog → Bulk Operations, not here."
+        if "Template" in s:
+            return (f"{name} is an Amazon listings report — it belongs in the Onboarding "
+                    "Wizard. For profit, upload Amazon's Date Range Report → Transaction (CSV).")
+        if "SKU-level P&L" in s:
+            return (f"{name} is Flipkart's Profit and Loss report, which counts orders "
+                    "placed rather than money settled. Upload Settled Transactions instead.")
+        if any("inventory" in x.lower() for x in s) or "inventory" in name.lower():
+            return (f"{name} looks like a listing/inventory file — it belongs in the "
+                    "Onboarding Wizard. For Meesho profit upload Payments → Order Payments.")
+        return (f"{name} is not a payment report (its sheets are: {', '.join(sheets[:8])}). "
+                "Upload Flipkart Settled Transactions or Meesho Order Payments.")
+    head = _text_head(data)
+    first = head.strip().splitlines()[0][:120] if head.strip() else ""
+    if "settlement-id" in head or "settlement-start-date" in head:
+        return (f"{name} is Amazon's Settlement (flat file) report. Upload the Date Range "
+                "Report → Transaction CSV instead.")
+    if "order-id" in head or "amazon-order-id" in head:
+        return (f"{name} is an Amazon orders report, which overstates revenue because "
+                "returns come later. Upload the Date Range Report → Transaction CSV.")
+    return (f"{name} is not a recognised payment report (it starts with: \"{first}\"). "
+            "Upload Amazon's Date Range Report → Transaction (CSV), Flipkart Settled "
+            "Transactions (Excel) or Meesho Order Payments (Excel).")
 
 
 # ---------------------------------------------------------------------------
@@ -450,11 +506,9 @@ def parse_settlement_file(data: bytes, filename: str = "") -> tuple[str, pd.Data
     """Detect the platform and parse. Returns (platform, normalised rows)."""
     platform = detect_platform(data, filename)
     if platform is None:
-        raise DataValidationException(
-            "Not a recognised settlement report. Upload the Amazon Date Range "
-            "Transaction report (CSV), Flipkart Settled Transactions (XLSX) or "
-            "Meesho Order Payments (XLSX)."
-        )
+        reason = describe_unrecognised(data, filename)
+        logger.warning(f"Unrecognised settlement upload '{filename}' ({len(data)} bytes): {reason}")
+        raise DataValidationException(reason)
     rows = PARSERS[platform](data)
     logger.info(f"Parsed {PLATFORM_LABELS[platform]} settlement file '{filename}': {len(rows)} rows")
     return platform, rows
