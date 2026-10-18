@@ -1,4 +1,9 @@
-"""SKU Profitability Dashboard."""
+"""Profit page.
+
+Two tabs answering two different questions:
+    Monthly P&L  — what did we actually make? From marketplace settlement files.
+    Price check  — at today's price, what should one unit earn? From fee rules.
+"""
 import streamlit as st
 import plotly.express as px
 from src.core.services.finance_service import FinanceService
@@ -12,10 +17,25 @@ logger = get_logger(__name__)
 
 
 def render():
-    """Render the Profit Dashboard page."""
+    """Render the Profit page: Monthly P&L (actual) and Price check (planned)."""
+    st.title("💰 Profit")
+    tab_actual, tab_planned = st.tabs(["📅 Monthly P&L", "🧮 Price check"])
+    with tab_actual:
+        from src.ui.pages import monthly_pnl
+        monthly_pnl.render()
+    with tab_planned:
+        _render_price_check()
+
+
+def _render_price_check():
+    """Per-listing unit economics at the current price (planned, not actual)."""
     try:
         logger.info("Rendering Profit Dashboard...")
-        st.title("💰 SKU Profitability")
+        st.caption(
+            "What one unit **should** earn at today's listing price, using the fee "
+            "rules in Catalog → Config & Rules. For what you actually earned, use "
+            "**Monthly P&L**."
+        )
 
         # --- Init service ---
         try:

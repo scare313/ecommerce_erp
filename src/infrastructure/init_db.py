@@ -240,6 +240,60 @@ def _apply_account_schema(engine):
             "seller_accounts",
         ),
         (
+            # One row per uploaded settlement file. file_hash stops the same
+            # file being imported twice; (platform, account, date range) is
+            # checked in PnlService so a re-downloaded copy is refused too.
+            """CREATE TABLE IF NOT EXISTS settlement_imports (
+                import_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_hash        VARCHAR(64)  NOT NULL UNIQUE,
+                file_name        VARCHAR(255),
+                platform         VARCHAR(50)  NOT NULL,
+                account_id       VARCHAR(50)  NOT NULL,
+                date_from        VARCHAR(10)  NOT NULL,
+                date_to          VARCHAR(10)  NOT NULL,
+                row_count        INTEGER      NOT NULL,
+                settlement_total DECIMAL(12,2) NOT NULL,
+                imported_at      DATETIME     DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "settlement_imports",
+        ),
+        (
+            # Normalised settlement lines (see settlement_parsers.py for the
+            # meaning and sign of each column). Deleted with their import.
+            """CREATE TABLE IF NOT EXISTS settlement_lines (
+                line_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                import_id        INTEGER NOT NULL
+                                 REFERENCES settlement_imports(import_id) ON DELETE CASCADE,
+                account_id       VARCHAR(50) NOT NULL,
+                platform         VARCHAR(50) NOT NULL,
+                txn_date         VARCHAR(10) NOT NULL,
+                month            VARCHAR(7)  NOT NULL,
+                order_id         VARCHAR(100),
+                line_type        VARCHAR(20) NOT NULL,
+                sku_raw          VARCHAR(100),
+                units            INTEGER NOT NULL DEFAULT 0,
+                returned_units   INTEGER NOT NULL DEFAULT 0,
+                sales_incl_gst   DECIMAL(12,2) NOT NULL DEFAULT 0,
+                gst_collected    DECIMAL(12,2),
+                gst_rate         DECIMAL(5,2),
+                fees_ex_gst      DECIMAL(12,2) NOT NULL DEFAULT 0,
+                shipping_ex_gst  DECIMAL(12,2) NOT NULL DEFAULT 0,
+                ads_ex_gst       DECIMAL(12,2) NOT NULL DEFAULT 0,
+                other_ex_gst     DECIMAL(12,2) NOT NULL DEFAULT 0,
+                itc              DECIMAL(12,2) NOT NULL DEFAULT 0,
+                tcs              DECIMAL(12,2) NOT NULL DEFAULT 0,
+                tds              DECIMAL(12,2) NOT NULL DEFAULT 0,
+                settlement_value DECIMAL(12,2) NOT NULL DEFAULT 0,
+                is_deferred      INTEGER NOT NULL DEFAULT 0
+            )""",
+            "settlement_lines",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS ix_settlement_lines_month "
+            "ON settlement_lines (month, account_id, platform)",
+            "ix_settlement_lines_month",
+        ),
+        (
             """CREATE TABLE IF NOT EXISTS fba_fee_rules (
                 id                 INTEGER PRIMARY KEY AUTOINCREMENT,
                 marketplace        VARCHAR(50)   NOT NULL,

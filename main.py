@@ -81,7 +81,7 @@ try:
     _nav("🔭 Gap Analysis", "Gap Analysis")
 
     st.sidebar.caption("ANALYZE")
-    _nav("💰 Profit Dashboard", "Profit Dashboard")
+    _nav("💰 Profit", "Profit Dashboard")
     _nav("📈 Demand Planner",   "Demand Planner")
 
     st.sidebar.caption("SETUP")
