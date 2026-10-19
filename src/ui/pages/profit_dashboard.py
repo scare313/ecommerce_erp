@@ -147,18 +147,20 @@ def _render_price_check():
             "recovered later, so they are not charged against profit."
         )
 
-        cols = [
-            'channel_sku', 'product_name', 'selling_price', 'revenue_ex_gst',
-            'total_cogs', 'shipping_fee', 'fees_ex_gst', 'net_profit', 'margin_pct',
-        ]
-        labels = [
-            'Listing SKU', 'Product Name', 'Price (incl GST)', 'Revenue (ex GST)',
-            'COGS', 'of which Shipping', 'Fees (ex GST)', 'Net Profit', 'Margin %',
-        ]
-        cols = [c for c in cols if c in df.columns]
-        labels = labels[:len(cols)]
-        view_df = df[cols].copy()
-        view_df.columns = labels
+        # Column -> label, kept as pairs so a missing column can never shift labels.
+        columns = {
+            'channel_sku': 'Listing SKU',
+            'account_id': 'Account',
+            'selling_price': 'Price (incl GST)',
+            'revenue_ex_gst': 'Revenue (ex GST)',
+            'total_cogs': 'Goods + packaging',
+            'shipping_fee': 'Shipping',
+            'fees_ex_gst': 'All fees incl. shipping (ex GST)',
+            'net_profit': 'Net Profit',
+            'margin_pct': 'Margin %',
+        }
+        columns = {c: label for c, label in columns.items() if c in df.columns}
+        view_df = df[list(columns)].rename(columns=columns)
 
         # Color-code margin column
         def highlight_margin(val):
@@ -172,7 +174,7 @@ def _render_price_check():
         st.dataframe(
             view_df.style.map(highlight_margin, subset=['Margin %']).format({
                 c: '₹{:.2f}' for c in view_df.columns
-                if c not in ('Listing SKU', 'Product Name', 'Margin %')
+                if c not in ('Listing SKU', 'Account', 'Margin %')
             } | {'Margin %': '{:.1f}%'}),
             width='stretch',
             hide_index=True,

@@ -104,26 +104,26 @@ def render():
                     )
 
                 with st.form("new_product_form"):
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     sku = c1.text_input("Master SKU (unique)", placeholder="CAP-RAIN-BLACK")
-                    name = c2.text_input("Product Name")
-
                     try:
                         cat_options = service.get_category_dropdown()
-                        category = c3.selectbox("Category (from Rules)", options=cat_options)
+                        category = c2.selectbox(
+                            "Category", options=cat_options,
+                            help="Decides which marketplace fee rules apply.",
+                        )
                     except Exception as e:
                         logger.error(f"Error fetching categories: {str(e)}", exc_info=True)
                         st.error("Unable to load categories. Please refresh the page.")
                         category = None
 
-                    c4, c5, c6 = st.columns(3)
-                    mfg_cost = c4.number_input("Mfg Cost", min_value=0.0)
-                    pkg_cost = c5.number_input("Unit Box Cost", min_value=0.0)
-                    labor = c6.number_input("Labor Cost", min_value=0.0)
-
-                    c7, c8 = st.columns(2)
-                    gst = c7.number_input("GST Rate (%)", value=5.0)
-                    status = c8.selectbox("Status", ["Active", "Discontinued"])
+                    c3, c4 = st.columns(2)
+                    landed_cost = c3.number_input(
+                        "Landed cost per unit (₹)", min_value=0.0,
+                        help="What ONE unit costs you, delivered to your godown "
+                             "(making + box + labour + freight). Used for profit.",
+                    )
+                    gst = c4.number_input("GST %", value=5.0, min_value=0.0, max_value=28.0)
 
                     # Supplier selectbox — replaces the previous supplier / supplier_code
                     # freetext inputs. Active suppliers only. If the list is empty the
@@ -164,13 +164,11 @@ def render():
 
                     if st.form_submit_button("Create Product", disabled=not supplier_options):
                         try:
-                            final_name = name if name.strip() else sku
-
                             service.add_product({
-                                "sku": sku, "name": final_name, "category": category,
-                                "mfg_cost": mfg_cost, "packaging_cost": pkg_cost,
-                                "labeling_labor": labor, "gst_rate": gst,
-                                "lifecycle_status": status,
+                                "sku": sku, "name": str(sku).strip().upper(),
+                                "category": category,
+                                "total_unit_cogs": landed_cost, "gst_rate": gst,
+                                "lifecycle_status": "Active",
                                 "supplier_code": selected_supplier_code,
                                 "supplier_product_code": supplier_product_code,
                             }, create_single_pack=create_pack)
@@ -190,10 +188,15 @@ def render():
             # View/Edit Grid
             try:
                 df_prod = pd.read_sql("SELECT * FROM product_master ORDER BY sku", engine)
+                st.toggle("Show all columns", key="show_all_prod",
+                          help="Name, brand, HSN, MRP, cost breakdown and other details.")
                 edited_prod = st.data_editor(
                     df_prod, key="editor_prod", num_rows="dynamic", hide_index=True,
                     column_config=cols.product_columns(service.get_category_dropdown()),
-                    column_order=cols.ordered(df_prod, cols.PRODUCT_ORDER),
+                    column_order=cols.visible(
+                        df_prod, cols.PRODUCT_ORDER, cols.PRODUCT_ESSENTIAL,
+                        st.session_state.get("show_all_prod", False),
+                    ),
                 )
                 if st.button("Save Product Changes"):
                     try:
@@ -251,10 +254,15 @@ def render():
             # View/Edit Grid
             try:
                 df_pack = pd.read_sql("SELECT * FROM pack_master ORDER BY pack_sku", engine)
+                st.toggle("Show all columns", key="show_all_pack",
+                          help="Length, width and height (used for volumetric weight).")
                 edited_pack = st.data_editor(
                     df_pack, key="editor_pack", num_rows="dynamic", hide_index=True,
                     column_config=cols.pack_columns(service.get_master_sku_list()),
-                    column_order=cols.ordered(df_pack, cols.PACK_ORDER),
+                    column_order=cols.visible(
+                        df_pack, cols.PACK_ORDER, cols.PACK_ESSENTIAL,
+                        st.session_state.get("show_all_pack", False),
+                    ),
                 )
                 if st.button("Save Pack Changes"):
                     try:
@@ -334,6 +342,8 @@ def render():
                 df_list = pd.read_sql(
                     "SELECT * FROM channel_listings ORDER BY marketplace, channel_sku", engine
                 )
+                st.toggle("Show all columns", key="show_all_list",
+                          help="ASIN / listing ID, link, note and last updated.")
                 
                 def highlight_missing_price(row):
                     if row['selling_price'] <= 0:
@@ -347,7 +357,10 @@ def render():
                         get_marketplaces(),
                         [a[0] for a in get_seller_accounts()],
                     ),
-                    column_order=cols.ordered(df_list, cols.LISTING_ORDER),
+                    column_order=cols.visible(
+                        df_list, cols.LISTING_ORDER, cols.LISTING_ESSENTIAL,
+                        st.session_state.get("show_all_list", False),
+                    ),
                 )
                 if st.button("Save Listing Changes"):
                     try:

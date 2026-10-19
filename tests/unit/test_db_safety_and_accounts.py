@@ -238,6 +238,20 @@ class TestSaveTableEdits:
             skus = {r[0] for r in conn.execute(text("SELECT sku FROM product_master"))}
         assert "CAP-NAVY" in skus
 
+    def test_columns_not_in_the_grid_keep_their_values(self, service, schema_engine):
+        with schema_engine.begin() as conn:
+            conn.execute(text("UPDATE product_master SET hsn = '6505', mrp = 499 WHERE sku = 'CAP-BLACK'"))
+        df = self._grid(schema_engine, "product_master")[["sku", "category", "total_unit_cogs"]]
+        df.loc[df["sku"] == "CAP-BLACK", "total_unit_cogs"] = 75
+
+        service.save_table_edits("product_master", df)
+
+        with schema_engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT name, hsn, mrp, total_unit_cogs FROM product_master WHERE sku = 'CAP-BLACK'"
+            )).fetchone()
+        assert tuple(row) == ("Black cap", "6505", 499, 75)
+
     def test_product_added_in_grid_gets_single_unit_pack(self, service, schema_engine):
         df = self._grid(schema_engine, "product_master")
         df.loc[len(df)] = {"sku": "cap-olive", "name": "Olive cap"}
@@ -337,6 +351,21 @@ class TestAddFormsCheckLinks:
             assert conn.execute(text(
                 "SELECT name FROM product_master WHERE sku='CAP-BLACK'"
             )).scalar() == "Black cap"
+
+    def test_add_product_takes_landed_cost_directly(self, service, schema_engine):
+        service.add_product({"sku": "cap-teal", "total_unit_cogs": 62.5, "gst_rate": 5})
+        with schema_engine.connect() as conn:
+            assert conn.execute(text(
+                "SELECT total_unit_cogs FROM product_master WHERE sku = 'CAP-TEAL'"
+            )).scalar() == 62.5
+
+    def test_add_product_sums_a_cost_breakdown(self, service, schema_engine):
+        service.add_product({"sku": "cap-rose", "mfg_cost": 40, "packaging_cost": 5,
+                             "labeling_labor": 3, "inbound_transport": 2})
+        with schema_engine.connect() as conn:
+            assert conn.execute(text(
+                "SELECT total_unit_cogs FROM product_master WHERE sku = 'CAP-ROSE'"
+            )).scalar() == 50
 
     def test_add_product_requires_master_sku(self, service):
         with pytest.raises(DataValidationException, match="Master SKU is required"):

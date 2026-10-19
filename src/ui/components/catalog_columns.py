@@ -105,6 +105,23 @@ def listing_columns(pack_skus, marketplaces, account_ids):
     }
 
 
+# What a person needs to see and edit day to day. Everything else stays in
+# the database (and in imports/exports) and appears with "Show all columns".
+# These are exactly the fields the profit, stock and purchase calculations use.
+PRODUCT_ESSENTIAL = ["sku", "category", "total_unit_cogs", "gst_rate", "supplier_code"]
+PACK_ESSENTIAL = ["pack_sku", "master_sku", "quantity", "packaging_cogs", "final_wt_kg"]
+LISTING_ESSENTIAL = ["channel_sku", "marketplace", "internal_sku", "account_id",
+                     "fulfilment_type", "selling_price", "listing_status"]
+
+
 def ordered(df, order):
     """Column order for a grid: known columns in `order`, then any others."""
     return [c for c in order if c in df.columns] + [c for c in df.columns if c not in order]
+
+
+def visible(df, order, essential, show_all):
+    """Columns to display. Hidden columns are still returned by st.data_editor
+    and saved unchanged — hiding only affects what is drawn."""
+    if show_all:
+        return ordered(df, order)
+    return [c for c in essential if c in df.columns]

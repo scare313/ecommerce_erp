@@ -19,25 +19,21 @@ class CatalogService:
 
     def get_product_dropdown(self):
         """
-        Returns list of Master SKUs for dropdown selection.
-        Cleans up display if Name == SKU.
-        
+        Returns the Master SKUs for dropdown selection.
+
+        SKU only: product names imported from marketplaces are long listing
+        titles that make the dropdown unreadable.
+
         Returns:
-            list: Product options formatted as "SKU" or "SKU | Name"
-            
+            list: Master SKUs, sorted
+
         Raises:
             DatabaseException: If database query fails
         """
         try:
             logger.debug("Fetching product dropdown options...")
             with self.engine.connect() as conn:
-                result = conn.execute(text("SELECT sku, name FROM product_master ORDER BY sku"))
-                options = []
-                for row in result:
-                    if row.name and row.name == row.sku:
-                        options.append(row.sku)
-                    else:
-                        options.append(f"{row.sku} | {row.name}")
+                options = [r[0] for r in conn.execute(text("SELECT sku FROM product_master ORDER BY sku"))]
                 logger.debug(f"Retrieved {len(options)} product options")
                 return options
         except Exception as e:
@@ -237,12 +233,14 @@ class CatalogService:
 
             logger.info(f"Adding product: {data.get('sku', 'UNKNOWN')}")
 
-            # Calculate Total Unit COGS automatically
-            mfg = data.get('mfg_cost', 0) or 0
-            box = data.get('packaging_cost', 0) or 0
-            labor = data.get('labeling_labor', 0) or 0
-            transport = data.get('inbound_transport', 0) or 0
-            data['total_unit_cogs'] = float(mfg) + float(box) + float(labor) + float(transport)
+            # Landed cost per unit: entered directly, or the sum of its parts
+            # when a breakdown is given (imports may supply either).
+            parts = [float(data.get(k) or 0) for k in
+                     ('mfg_cost', 'packaging_cost', 'labeling_labor', 'inbound_transport')]
+            if any(parts):
+                data['total_unit_cogs'] = sum(parts)
+            else:
+                data['total_unit_cogs'] = float(data.get('total_unit_cogs') or 0)
             
             logger.debug(f"Calculated COGS: {data['total_unit_cogs']}")
 
@@ -533,6 +531,16 @@ class CatalogService:
                     old_skus = {r[0] for r in conn.execute(text("SELECT sku FROM product_master"))}
                     has_pack = {r[0] for r in conn.execute(text("SELECT pack_sku FROM pack_master"))}
                     packs_created = sorted(set(df["sku"]) - old_skus - has_pack)
+
+                # A grid may show only some columns. Any column it did not send
+                # keeps its stored value for existing rows instead of being
+                # wiped by the delete-and-reinsert below.
+                missing = [c for c in table_cols if c not in df.columns]
+                if missing:
+                    stored = pd.read_sql(
+                        text(f"SELECT {', '.join(keys + missing)} FROM {table}"), conn
+                    )
+                    df = df.merge(stored, on=keys, how="left")
 
                 save_df = df[[c for c in df.columns if c in table_cols]]
                 # Rows are deleted and re-inserted, so foreign-key checks (when
